@@ -360,6 +360,11 @@ static inline void tcg_add_param_i64(TCGv_i64 val)
 #endif
 }
 
+static inline void tcg_gen_get_ins_mark(int32_t block_id) {
+    *tcg_ctx.gen_opc_ptr++ = INDEX_op_get_ins_mark;
+    *tcg_ctx.gen_opparam_ptr++ = block_id;
+}
+
 static inline void gen_set_label(int n)
 {
     tcg_gen_op1i(INDEX_op_set_label, n);

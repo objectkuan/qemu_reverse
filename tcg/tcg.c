@@ -1218,6 +1218,8 @@ void tcg_dump_ops(TCGContext *s)
                 }
                 i = 1;
                 break;
+	    case INDEX_op_get_ins_mark:
+		break;
             default:
                 i = 0;
                 break;
@@ -2107,7 +2109,7 @@ static void tcg_reg_alloc_op(TCGContext *s,
         arg = args[i];
         arg_ct = &def->args_ct[i];
         ts = &s->temps[arg];
-        if (ts->val_type == TEMP_VAL_MEM) {
+	if (ts->val_type == TEMP_VAL_MEM) {
             reg = tcg_reg_alloc(s, arg_ct->u.regs, allocated_regs);
             tcg_out_ld(s, ts->type, reg, ts->mem_reg, ts->mem_offset);
             ts->val_type = TEMP_VAL_REG;
@@ -2422,7 +2424,6 @@ static inline int tcg_gen_code_common(TCGContext *s,
     int op_index;
     const TCGOpDef *def;
     const TCGArg *args;
-
 #ifdef DEBUG_DISAS
     if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP))) {
         qemu_log("OP:\n");
@@ -2465,7 +2466,6 @@ static inline int tcg_gen_code_common(TCGContext *s,
     s->code_ptr = gen_code_buf;
 
     tcg_out_tb_init(s);
-
     args = s->gen_opparam_buf;
     op_index = 0;
 

@@ -23,6 +23,7 @@
  */
 
 #include "tcg-be-ldst.h"
+#include "get-ins-mark.h"
 
 #ifndef NDEBUG
 static const char * const tcg_target_reg_names[TCG_TARGET_NB_REGS] = {
@@ -2054,7 +2055,22 @@ static inline void tcg_out_op(TCGContext *s, TCGOpcode opc,
             tcg_abort();
         }
         break;
+    case INDEX_op_get_ins_mark:
+    {
+	void (*pinsert_bbexec)(BBExec*, tcg_target_long) = insert_bbexec;
+	void *pbbexec = &bbexec;
+	tcg_out_push(s, TCG_REG_EAX);
+	tcg_out_push(s, TCG_REG_EBX);
 
+        tcg_out_movi(s, TCG_TYPE_PTR, tcg_target_call_iarg_regs[0], (tcg_target_long) pbbexec);
+        tcg_out_movi(s, TCG_TYPE_I32, tcg_target_call_iarg_regs[1], (tcg_target_long) args[0]);
+	
+	tcg_out_call(s, (tcg_insn_unit *) pinsert_bbexec);
+
+	tcg_out_pop(s, TCG_REG_EBX);
+	tcg_out_pop(s, TCG_REG_EAX);
+    }
+	break;
     case INDEX_op_mov_i32:  /* Always emitted via tcg_out_mov.  */
     case INDEX_op_mov_i64:
     case INDEX_op_movi_i32: /* Always emitted via tcg_out_movi.  */
@@ -2193,6 +2209,8 @@ static const TCGTargetOpDef x86_op_defs[] = {
     { INDEX_op_qemu_ld_i64, { "r", "r", "L", "L" } },
     { INDEX_op_qemu_st_i64, { "L", "L", "L", "L" } },
 #endif
+
+    { INDEX_op_get_ins_mark, {  } },
     { -1 },
 };
 
@@ -2339,6 +2357,9 @@ static void tcg_target_init(TCGContext *s)
     tcg_regset_set_reg(s->reserved_regs, TCG_REG_CALL_STACK);
 
     tcg_add_target_add_op_defs(x86_op_defs);
+
+    /* Initialize the Basic Block Executation Instrumentation. */
+    init_bbexec(&bbexec);
 }
 
 typedef struct {

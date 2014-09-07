@@ -5349,7 +5349,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         /**************************/
         /* mov */
     case 0x88:
-    case 0x89: /* mov Gv, Ev */
+    case 0x89: /* mov Gv, Ev */ /* Move r to r/m. */
         ot = mo_b_d(b, dflag);
         modrm = cpu_ldub_code(env, s->pc++);
         reg = ((modrm >> 3) & 7) | rex_r;
@@ -5358,7 +5358,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         gen_ldst_modrm(env, s, modrm, ot, reg, 1);
         break;
     case 0xc6:
-    case 0xc7: /* mov Ev, Iv */
+    case 0xc7: /* mov Ev, Iv */ /* Move imm to r/m */
         ot = mo_b_d(b, dflag);
         modrm = cpu_ldub_code(env, s->pc++);
         mod = (modrm >> 6) & 3;
@@ -5375,7 +5375,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         }
         break;
     case 0x8a:
-    case 0x8b: /* mov Ev, Gv */
+    case 0x8b: /* mov Ev, Gv */ /* Move r/m to r */
         ot = mo_b_d(b, dflag);
         modrm = cpu_ldub_code(env, s->pc++);
         reg = ((modrm >> 3) & 7) | rex_r;
@@ -5383,7 +5383,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
         gen_ldst_modrm(env, s, modrm, ot, OR_TMP0, 0);
         gen_op_mov_reg_v(ot, reg, cpu_T[0]);
         break;
-    case 0x8e: /* mov seg, Gv */
+    case 0x8e: /* mov seg, Gv */ /* Move r/m to segment register */
         modrm = cpu_ldub_code(env, s->pc++);
         reg = (modrm >> 3) & 7;
         if (reg >= 6 || reg == R_CS)
@@ -5403,7 +5403,7 @@ static target_ulong disas_insn(CPUX86State *env, DisasContext *s,
             gen_eob(s);
         }
         break;
-    case 0x8c: /* mov Gv, seg */
+    case 0x8c: /* mov Gv, seg */ /* Move segment register to r/m */
         modrm = cpu_ldub_code(env, s->pc++);
         reg = (modrm >> 3) & 7;
         mod = (modrm >> 6) & 3;
@@ -7981,6 +7981,7 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
         max_insns = CF_COUNT_MASK;
 
     gen_tb_start();
+    tcg_gen_get_ins_mark(pc_start);
     for(;;) {
         if (unlikely(!QTAILQ_EMPTY(&cs->breakpoints))) {
             QTAILQ_FOREACH(bp, &cs->breakpoints, entry) {
