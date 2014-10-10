@@ -28,6 +28,7 @@
 #include "disas/disas.h"
 #include "tcg-op.h"
 #include "exec/cpu_ldst.h"
+#include "replay/replay.h"
 
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
@@ -112,6 +113,7 @@ typedef struct DisasContext {
     int tf;     /* TF cpu flag */
     int singlestep_enabled; /* "hardware" single step enabled */
     int jmp_opt; /* use direct block chaining for direct jumps */
+    int repz_opt; /* optimize jumps within repz instructions */
     int mem_index; /* select memory access functions */
     uint64_t flags; /* all execution flags */
     struct TranslationBlock *tb;
@@ -1212,8 +1214,9 @@ static inline void gen_repz_ ## op(DisasContext *s, TCGMemOp ot,              \
     gen_op_add_reg_im(s->aflag, R_ECX, -1);                                   \
     /* a loop would cause two single step exceptions if ECX = 1               \
        before rep string_insn */                                              \
-    if (!s->jmp_opt)                                                          \
+    if (!s->repz_opt) {                                                       \
         gen_op_jz_ecx(s->aflag, l2);                                          \
+    }                                                                         \
     gen_jmp(s, cur_eip);                                                      \
 }
 
@@ -1230,8 +1233,9 @@ static inline void gen_repz_ ## op(DisasContext *s, TCGMemOp ot,              \
     gen_op_add_reg_im(s->aflag, R_ECX, -1);                                   \
     gen_update_cc_op(s);                                                      \
     gen_jcc1(s, (JCC_Z << 1) | (nz ^ 1), l2);                                 \
-    if (!s->jmp_opt)                                                          \
+    if (!s->repz_opt) {                                                       \
         gen_op_jz_ecx(s->aflag, l2);                                          \
+    }                                                                         \
     gen_jmp(s, cur_eip);                                                      \
 }
 
@@ -7887,6 +7891,32 @@ void optimize_flags_init(void)
     }
 }
 
+static void gen_instr_replay(DisasContext *s, target_ulong pc_ptr)
+{
+    int l1 = gen_new_label();
+
+    gen_helper_replay_instruction(cpu_tmp2_i32, cpu_env);
+    tcg_gen_brcondi_i32(TCG_COND_EQ, cpu_tmp2_i32, 0, l1);
+
+    /* Don't reset dirty flag */
+    if (s->cc_op_dirty) {
+        tcg_gen_movi_i32(cpu_cc_op, s->cc_op);
+    }
+    gen_jmp_im(pc_ptr - s->cs_base);
+    tcg_gen_exit_tb(0);
+
+    gen_set_label(l1);
+}
+
+static void gen_instructions_count(void)
+{
+    tcg_gen_ld_i32(cpu_tmp2_i32, cpu_env,
+                   offsetof(CPUState, instructions_count) - ENV_OFFSET);
+    tcg_gen_addi_i32(cpu_tmp2_i32, cpu_tmp2_i32, 1);
+    tcg_gen_st_i32(cpu_tmp2_i32, cpu_env,
+                   offsetof(CPUState, instructions_count) - ENV_OFFSET);
+}
+
 /* generate intermediate code in gen_opc_buf and gen_opparam_buf for
    basic block 'tb'. If search_pc is TRUE, also generate PC
    information for each intermediate instruction. */
@@ -7948,6 +7978,19 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
                     || (flags & HF_SOFTMMU_MASK)
 #endif
                     );
+    dc->repz_opt = dc->jmp_opt
+                    /* Do not optimize repz jumps at all in replay mode, because
+                       rep movsS instructions are execured with different paths
+                       in repz_opt and !repz_opt modes. The first one was used
+                       always except single step mode. And this setting
+                       disables jumps optimization and control paths become
+                       equivalent in run and single step modes.
+                       Now there will be no jump optimization for repz in
+                       trace and replay modes and there will always be an
+                       additional step for ecx=0.
+                     */
+                    || replay_mode != REPLAY_MODE_NONE
+                    ;
 #if 0
     /* check addseg logic */
     if (!dc->addseg && (dc->vm86 || !dc->pe || !dc->code32))
@@ -8000,8 +8043,22 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
             tcg_ctx.gen_opc_instr_start[lj] = 1;
             tcg_ctx.gen_opc_icount[lj] = num_insns;
         }
-        if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO))
+        if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO)
+            && replay_mode == REPLAY_MODE_NONE) {
             gen_io_start();
+        }
+        /* generate instruction counter code for replay */
+        if (replay_mode != REPLAY_MODE_NONE) {
+            /* In PLAY mode check timer event at every instruction,
+               not only at the beginning of the block. This is needed,
+               when replaying has changed the bounds of translation blocks.
+             */
+            if (pc_ptr == pc_start || replay_mode == REPLAY_MODE_PLAY) {
+                gen_instr_replay(dc, pc_ptr);
+            } else {
+                gen_instructions_count();
+            }
+        }
 
         pc_ptr = disas_insn(env, dc, pc_ptr);
         num_insns++;
@@ -8015,6 +8072,20 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
            change to be happen */
         if (dc->tf || dc->singlestep_enabled ||
             (flags & HF_INHIBIT_IRQ_MASK)) {
+            gen_jmp_im(pc_ptr - dc->cs_base);
+            gen_eob(dc);
+            break;
+        }
+        /* In replay mode do not cross the boundary of the pages,
+           it can cause an exception. Do it only when boundary is
+           crossed by the first instruction in the block.
+           If current instruction already crossed the bound - it's ok,
+           because an exception hasn't stopped this code.
+         */
+        if (replay_mode != REPLAY_MODE_NONE
+            && ((pc_ptr & TARGET_PAGE_MASK)
+                != ((pc_ptr + TARGET_MAX_INSN_SIZE - 1) & TARGET_PAGE_MASK)
+                || (pc_ptr & ~TARGET_PAGE_MASK) == 0)) {
             gen_jmp_im(pc_ptr - dc->cs_base);
             gen_eob(dc);
             break;
@@ -8033,8 +8104,10 @@ static inline void gen_intermediate_code_internal(X86CPU *cpu,
             break;
         }
     }
-    if (tb->cflags & CF_LAST_IO)
+    if ((tb->cflags & CF_LAST_IO)
+        && replay_mode == REPLAY_MODE_NONE) {
         gen_io_end();
+    }
     gen_tb_end(tb, num_insns);
     *tcg_ctx.gen_opc_ptr = INDEX_op_end;
     /* we don't forget to fill the last values */
