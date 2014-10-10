@@ -34,6 +34,8 @@ struct BlockDriverAIOCB {
     const AIOCBInfo *aiocb_info;
     BlockDriverState *bs;
     BlockDriverCompletionFunc *cb;
+    bool replay;
+    uint64_t replay_step;
     void *opaque;
 };
 
@@ -141,6 +143,17 @@ void aio_context_release(AioContext *ctx);
 QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
 
 /**
+ * aio_bh_new_replay: Allocate a new bottom half structure for replay.
+ *
+ * This function calls aio_bh_new function and also fills replay parameters
+ * of the BH structure. BH created with this function in record/replay mode
+ * are executed through the replay queue only at checkpoints and instructions
+ * executions.
+ */
+QEMUBH *aio_bh_new_replay(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
+                          uint64_t id);
+
+/**
  * aio_notify: Force processing of pending events.
  *
  * Similar to signaling a condition variable, aio_notify forces
@@ -154,6 +167,11 @@ QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque);
  * a bottom half calls it already.
  */
 void aio_notify(AioContext *ctx);
+
+/**
+ * aio_bh_call: Executes callback function of the specified BH.
+ */
+void aio_bh_call(void *opaque);
 
 /**
  * aio_bh_poll: Poll bottom halves for an AioContext.

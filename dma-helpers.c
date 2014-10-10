@@ -12,6 +12,7 @@
 #include "qemu/range.h"
 #include "qemu/thread.h"
 #include "qemu/main-loop.h"
+#include "replay/replay.h"
 
 /* #define DEBUG_IOMMU */
 
@@ -96,7 +97,8 @@ static void continue_after_map_failure(void *opaque)
 {
     DMAAIOCB *dbs = (DMAAIOCB *)opaque;
 
-    dbs->bh = qemu_bh_new(reschedule_dma, dbs);
+    dbs->bh = qemu_bh_new_replay(reschedule_dma, dbs,
+                                 replay_get_current_step());
     qemu_bh_schedule(dbs->bh);
 }
 

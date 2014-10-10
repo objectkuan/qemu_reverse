@@ -32,6 +32,7 @@
 #include "internal.h"
 #include <hw/ide/pci.h>
 #include <hw/ide/ahci.h>
+#include "replay/replay.h"
 
 /* #define DEBUG_AHCI */
 
@@ -1132,7 +1133,8 @@ static int ahci_async_cmd_done(IDEDMA *dma)
 
     if (!ad->check_bh) {
         /* maybe we still have something to process, check later */
-        ad->check_bh = qemu_bh_new(ahci_check_cmd_bh, ad);
+        ad->check_bh = qemu_bh_new_replay(ahci_check_cmd_bh, ad,
+                                          replay_get_current_step());
         qemu_bh_schedule(ad->check_bh);
     }
 

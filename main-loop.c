@@ -498,3 +498,8 @@ QEMUBH *qemu_bh_new(QEMUBHFunc *cb, void *opaque)
 {
     return aio_bh_new(qemu_aio_context, cb, opaque);
 }
+
+QEMUBH *qemu_bh_new_replay(QEMUBHFunc *cb, void *opaque, uint64_t id)
+{
+    return aio_bh_new_replay(qemu_aio_context, cb, opaque, id);
+}

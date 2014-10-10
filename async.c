@@ -27,6 +27,7 @@
 #include "block/thread-pool.h"
 #include "qemu/main-loop.h"
 #include "qemu/atomic.h"
+#include "replay/replay.h"
 
 /***********************************************************/
 /* bottom halves (can be seen as timers which expire ASAP) */
@@ -39,22 +40,51 @@ struct QEMUBH {
     bool scheduled;
     bool idle;
     bool deleted;
+    bool replay;
+    uint64_t id;
 };
 
 QEMUBH *aio_bh_new(AioContext *ctx, QEMUBHFunc *cb, void *opaque)
 {
-    QEMUBH *bh;
+    QEMUBH *bh, **last;
     bh = g_malloc0(sizeof(QEMUBH));
     bh->ctx = ctx;
     bh->cb = cb;
     bh->opaque = opaque;
     qemu_mutex_lock(&ctx->bh_lock);
-    bh->next = ctx->first_bh;
-    /* Make sure that the members are ready before putting bh into list */
-    smp_wmb();
-    ctx->first_bh = bh;
+    if (replay_mode != REPLAY_MODE_NONE) {
+        /* Slower way, but this is a queue and not a stack.
+           Replay will process the BH in the same order they
+           came into the queue. */
+        last = &ctx->first_bh;
+        while (*last) {
+            last = &(*last)->next;
+        }
+        smp_wmb();
+        *last = bh;
+    } else {
+        bh->next = ctx->first_bh;
+        /* Make sure that the members are ready before putting bh into list */
+        smp_wmb();
+        ctx->first_bh = bh;
+    }
     qemu_mutex_unlock(&ctx->bh_lock);
     return bh;
+}
+
+QEMUBH *aio_bh_new_replay(AioContext *ctx, QEMUBHFunc *cb, void *opaque,
+                          uint64_t id)
+{
+    QEMUBH *bh = aio_bh_new(ctx, cb, opaque);
+    bh->replay = true;
+    bh->id = id;
+    return bh;
+}
+
+void aio_bh_call(void *opaque)
+{
+    QEMUBH *bh = (QEMUBH *)opaque;
+    bh->cb(bh->opaque);
 }
 
 /* Multiple occurrences of aio_bh_poll cannot be called concurrently */
@@ -79,7 +109,11 @@ int aio_bh_poll(AioContext *ctx)
             if (!bh->idle)
                 ret = 1;
             bh->idle = 0;
-            bh->cb(bh->opaque);
+            if (!bh->replay) {
+                aio_bh_call(bh);
+            } else {
+                replay_add_bh_event(bh, bh->id);
+            }
         }
     }
 

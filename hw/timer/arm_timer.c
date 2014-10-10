@@ -168,7 +168,7 @@ static arm_timer_state *arm_timer_init(uint32_t freq)
     s->freq = freq;
     s->control = TIMER_CTRL_IE;
 
-    bh = qemu_bh_new(arm_timer_tick, s);
+    bh = qemu_bh_new_replay(arm_timer_tick, s, 0);
     s->timer = ptimer_init(bh);
     vmstate_register(NULL, -1, &vmstate_arm_timer, s);
     return s;

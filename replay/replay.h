@@ -90,6 +90,8 @@ int replay_checkpoint(unsigned int checkpoint);
 
 /*! Disables storing events in the queue */
 void replay_disable_events(void);
+/*! Adds BH event to the queue */
+void replay_add_bh_event(void *bh, uint64_t id);
 
 /* icount-based virtual clock */
 

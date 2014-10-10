@@ -32,3 +32,7 @@ int64_t replay_get_icount(void)
 {
     return 0;
 }
+
+void replay_add_bh_event(void *bh, uint64_t id)
+{
+}

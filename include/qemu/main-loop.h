@@ -306,6 +306,7 @@ void qemu_iohandler_fill(GArray *pollfds);
 void qemu_iohandler_poll(GArray *pollfds, int rc);
 
 QEMUBH *qemu_bh_new(QEMUBHFunc *cb, void *opaque);
+QEMUBH *qemu_bh_new_replay(QEMUBHFunc *cb, void *opaque, uint64_t id);
 void qemu_bh_schedule_idle(QEMUBH *bh);
 
 #endif
