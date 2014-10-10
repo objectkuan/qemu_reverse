@@ -31,6 +31,7 @@
 #include "qemu/log.h"
 #include "qemu/bitops.h"
 #include "arm_ldst.h"
+#include "replay/replay.h"
 
 #include "exec/helper-proto.h"
 #include "exec/helper-gen.h"
@@ -10858,6 +10859,32 @@ undef:
     gen_exception_insn(s, 2, EXCP_UDEF, syn_uncategorized());
 }
 
+static void gen_instructions_count(void)
+{
+    TCGv_i32 cpu_tmp_i32 = tcg_temp_new();
+    tcg_gen_ld_i32(cpu_tmp_i32, cpu_env,
+                   offsetof(CPUState, instructions_count) - ENV_OFFSET);
+    tcg_gen_addi_i32(cpu_tmp_i32, cpu_tmp_i32, 1);
+    tcg_gen_st_i32(cpu_tmp_i32, cpu_env,
+                   offsetof(CPUState, instructions_count) - ENV_OFFSET);
+    tcg_temp_free(cpu_tmp_i32);
+}
+
+static void gen_instr_replay(DisasContext *s, target_ulong pc_ptr)
+{
+    int l1 = gen_new_label();
+    TCGv_i32 cpu_tmp2_i32 = tcg_temp_new();
+
+    gen_helper_replay_instruction(cpu_tmp2_i32, cpu_env);
+    tcg_gen_brcondi_i32(TCG_COND_EQ, cpu_tmp2_i32, 0, l1);
+
+    gen_set_condexec(s);
+    gen_set_pc_im(s, pc_ptr);
+    tcg_gen_exit_tb(0);
+    gen_set_label(l1);
+    tcg_temp_free(cpu_tmp2_i32);
+}
+
 /* generate intermediate code in gen_opc_buf and gen_opparam_buf for
    basic block 'tb'. If search_pc is TRUE, also generate PC
    information for each intermediate instruction. */
@@ -11015,11 +11042,25 @@ static inline void gen_intermediate_code_internal(ARMCPU *cpu,
             tcg_ctx.gen_opc_icount[lj] = num_insns;
         }
 
-        if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO))
+        if (num_insns + 1 == max_insns && (tb->cflags & CF_LAST_IO)
+            && replay_mode == REPLAY_MODE_NONE) {
             gen_io_start();
+        }
 
         if (unlikely(qemu_loglevel_mask(CPU_LOG_TB_OP | CPU_LOG_TB_OP_OPT))) {
             tcg_gen_debug_insn_start(dc->pc);
+        }
+
+        if (replay_mode != REPLAY_MODE_NONE) {
+            /* In PLAY mode check events at every instruction, not only at
+               the beginning of the block. This is needed, when replaying
+               has changed the bounds of translation blocks.
+             */
+            if (dc->pc == pc_start || replay_mode == REPLAY_MODE_PLAY) {
+                gen_instr_replay(dc, dc->pc);
+            } else {
+                gen_instructions_count();
+            }
         }
 
         if (dc->thumb) {
@@ -11054,10 +11095,11 @@ static inline void gen_intermediate_code_internal(ARMCPU *cpu,
     } while (!dc->is_jmp && tcg_ctx.gen_opc_ptr < gen_opc_end &&
              !cs->singlestep_enabled &&
              !singlestep &&
-             dc->pc < next_page_start &&
+             /* +3 is for unaligned Thumb2 instructions */
+             dc->pc + 3 < next_page_start &&
              num_insns < max_insns);
 
-    if (tb->cflags & CF_LAST_IO) {
+    if ((tb->cflags & CF_LAST_IO) && replay_mode == REPLAY_MODE_NONE) {
         if (dc->condjmp) {
             /* FIXME:  This can theoretically happen with self-modifying
                code.  */
