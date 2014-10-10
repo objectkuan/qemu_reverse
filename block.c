@@ -1932,6 +1932,11 @@ void bdrv_drain_all(void)
     BlockDriverState *bs;
 
     while (busy) {
+        if (!replay_checkpoint(8)) {
+            /* Do not wait anymore, we stopped at some place in
+               the middle of execution during replay */
+            return;
+        }
         busy = false;
 
         QTAILQ_FOREACH(bs, &bdrv_states, device_list) {
@@ -1946,6 +1951,12 @@ void bdrv_drain_all(void)
             aio_context_release(aio_context);
 
             busy |= bs_busy;
+        }
+    }
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        /* Skip checkpoints from the log */
+        while (replay_checkpoint(8)) {
+            /* Nothing */
         }
     }
 }

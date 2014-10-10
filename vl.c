@@ -1985,7 +1985,8 @@ static bool main_loop_should_exit(void)
             return true;
         }
     }
-    if (qemu_reset_requested()) {
+    if (qemu_reset_requested_get() && replay_checkpoint(7)) {
+        qemu_reset_requested();
         pause_all_vcpus();
         cpu_synchronize_all_states();
         qemu_system_reset(VMRESET_REPORT);

@@ -211,3 +211,31 @@ void replay_shutdown_request(void)
         replay_put_event(EVENT_SHUTDOWN);
     }
 }
+
+/* Used checkpoints: 2 3 5 6 7 8 9 */
+int replay_checkpoint(unsigned int checkpoint)
+{
+    replay_save_instructions();
+
+    if (replay_file) {
+        if (replay_mode == REPLAY_MODE_PLAY) {
+            if (!skip_async_events(EVENT_CHECKPOINT + checkpoint)) {
+                if (replay_data_kind == EVENT_ASYNC_OPT) {
+                    replay_read_events(checkpoint);
+                    replay_fetch_data_kind();
+                    return replay_data_kind != EVENT_ASYNC_OPT;
+                }
+                return 0;
+            }
+            replay_has_unread_data = 0;
+            replay_read_events(checkpoint);
+            replay_fetch_data_kind();
+            return replay_data_kind != EVENT_ASYNC_OPT;
+        } else if (replay_mode == REPLAY_MODE_RECORD) {
+            replay_put_event(EVENT_CHECKPOINT + checkpoint);
+            replay_save_events(checkpoint);
+        }
+    }
+
+    return 1;
+}

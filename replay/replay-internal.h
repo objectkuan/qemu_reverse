@@ -34,6 +34,9 @@
 #define EVENT_CLOCK                 64
 /* some of grteater codes are reserved for clocks */
 
+/* for checkpoint event */
+#define EVENT_CHECKPOINT            96
+
 /* Asynchronous events IDs */
 
 #define REPLAY_ASYNC_COUNT             0

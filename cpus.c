@@ -363,7 +363,7 @@ void qtest_clock_warp(int64_t dest)
         qemu_icount_bias += warp;
         seqlock_write_unlock(&timers_state.vm_clock_seqlock);
 
-        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL);
+        qemu_clock_run_timers(QEMU_CLOCK_VIRTUAL, false);
         clock = qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
     }
     qemu_clock_notify(QEMU_CLOCK_VIRTUAL);

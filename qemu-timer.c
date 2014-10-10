@@ -458,13 +458,31 @@ bool timer_expired(QEMUTimer *timer_head, int64_t current_time)
     return timer_expired_ns(timer_head, current_time * timer_head->scale);
 }
 
-bool timerlist_run_timers(QEMUTimerList *timer_list)
+bool timerlist_run_timers(QEMUTimerList *timer_list, bool run_all)
 {
     QEMUTimer *ts;
     int64_t current_time;
     bool progress = false;
     QEMUTimerCB *cb;
     void *opaque;
+
+    switch (timer_list->clock->type) {
+    case QEMU_CLOCK_REALTIME:
+        break;
+    default:
+    case QEMU_CLOCK_VIRTUAL:
+        if ((replay_mode != REPLAY_MODE_NONE && !runstate_is_running())
+            || !replay_checkpoint(run_all ? 2 : 3)) {
+            return false;
+        }
+        break;
+    case QEMU_CLOCK_HOST:
+        if ((replay_mode != REPLAY_MODE_NONE && !runstate_is_running())
+            || !replay_checkpoint(run_all ? 5 : 6)) {
+            return false;
+        }
+        break;
+    }
 
     qemu_event_reset(&timer_list->timers_done_ev);
     if (!timer_list->clock->enabled) {
@@ -498,9 +516,9 @@ out:
     return progress;
 }
 
-bool qemu_clock_run_timers(QEMUClockType type)
+bool qemu_clock_run_timers(QEMUClockType type, bool run_all)
 {
-    return timerlist_run_timers(main_loop_tlg.tl[type]);
+    return timerlist_run_timers(main_loop_tlg.tl[type], run_all);
 }
 
 void timerlistgroup_init(QEMUTimerListGroup *tlg,
@@ -525,7 +543,7 @@ bool timerlistgroup_run_timers(QEMUTimerListGroup *tlg)
     QEMUClockType type;
     bool progress = false;
     for (type = 0; type < QEMU_CLOCK_MAX; type++) {
-        progress |= timerlist_run_timers(tlg->tl[type]);
+        progress |= timerlist_run_timers(tlg->tl[type], false);
     }
     return progress;
 }
@@ -534,11 +552,18 @@ int64_t timerlistgroup_deadline_ns(QEMUTimerListGroup *tlg)
 {
     int64_t deadline = -1;
     QEMUClockType type;
+    bool play = replay_mode == REPLAY_MODE_PLAY;
     for (type = 0; type < QEMU_CLOCK_MAX; type++) {
         if (qemu_clock_use_for_deadline(tlg->tl[type]->clock->type)) {
-            deadline = qemu_soonest_timeout(deadline,
-                                            timerlist_deadline_ns(
-                                                tlg->tl[type]));
+            if (!play || tlg->tl[type]->clock->type == QEMU_CLOCK_REALTIME) {
+                deadline = qemu_soonest_timeout(deadline,
+                                                timerlist_deadline_ns(
+                                                    tlg->tl[type]));
+            } else {
+                /* Read clock from the replay file and
+                   do not calculate the deadline, based on virtual clock. */
+                qemu_clock_get_ns(tlg->tl[type]->clock->type);
+            }
         }
     }
     return deadline;
@@ -606,7 +631,7 @@ bool qemu_clock_run_all_timers(void)
     QEMUClockType type;
 
     for (type = 0; type < QEMU_CLOCK_MAX; type++) {
-        progress |= qemu_clock_run_timers(type);
+        progress |= qemu_clock_run_timers(type, true);
     }
 
     return progress;

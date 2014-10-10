@@ -232,13 +232,14 @@ void qemu_clock_unregister_reset_notifier(QEMUClockType type,
 /**
  * qemu_clock_run_timers:
  * @type: clock on which to operate
+ * @run_all: true, when called from qemu_clock_run_all_timers
  *
  * Run all the timers associated with the default timer list
  * of a clock.
  *
  * Returns: true if any timer ran.
  */
-bool qemu_clock_run_timers(QEMUClockType type);
+bool qemu_clock_run_timers(QEMUClockType type, bool run_all);
 
 /**
  * qemu_clock_run_all_timers:
@@ -329,12 +330,13 @@ QEMUClockType timerlist_get_clock(QEMUTimerList *timer_list);
 /**
  * timerlist_run_timers:
  * @timer_list: the timer list to use
+ * @run_all: true, when called from qemu_clock_run_all_timers
  *
  * Call all expired timers associated with the timer list.
  *
  * Returns: true if any timer expired
  */
-bool timerlist_run_timers(QEMUTimerList *timer_list);
+bool timerlist_run_timers(QEMUTimerList *timer_list, bool run_all);
 
 /**
  * timerlist_notify:

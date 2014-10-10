@@ -77,6 +77,12 @@ void replay_read_tm(struct tm *tm);
 
 /*! Called when qemu shutdown is requested. */
 void replay_shutdown_request(void);
+/*! Should be called at check points in the execution.
+    These check points are skipped, if they were not met.
+    Saves checkpoint in the SAVE mode and validates in the PLAY mode.
+    Returns 0 in PLAY mode if checkpoint was not found.
+    Returns 1 in all other cases. */
+int replay_checkpoint(unsigned int checkpoint);
 
 /* Asynchronous events queue */
 
