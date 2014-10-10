@@ -351,6 +351,24 @@ static int get_kpcr_number(X86CPU *cpu)
     return kpcr.number;
 }
 
+static int vapic_enable_post_load(VAPICROMState *s, X86CPU *cpu)
+{
+    int cpu_number = get_kpcr_number(cpu);
+    hwaddr vapic_paddr;
+    static const uint8_t enabled = 1;
+
+    if (cpu_number < 0) {
+        return -1;
+    }
+    vapic_paddr = s->vapic_paddr +
+        (((hwaddr)cpu_number) << VAPIC_CPU_SHIFT);
+    cpu_physical_memory_rw(vapic_paddr + offsetof(VAPICState, enabled),
+                           (void *)&enabled, sizeof(enabled), 1);
+    s->state = VAPIC_ACTIVE;
+
+    return 0;
+}
+
 static int vapic_enable(VAPICROMState *s, X86CPU *cpu)
 {
     int cpu_number = get_kpcr_number(cpu);
@@ -731,7 +749,9 @@ static void do_vapic_enable(void *data)
     VAPICROMState *s = data;
     X86CPU *cpu = X86_CPU(first_cpu);
 
-    vapic_enable(s, cpu);
+    /* Do not synchronize with APIC, because it was not loaded yet.
+       Just call the enable function which does not have synchronization. */
+    vapic_enable_post_load(s, cpu);
 }
 
 static int vapic_post_load(void *opaque, int version_id)
