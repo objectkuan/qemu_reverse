@@ -477,6 +477,24 @@ static const MemoryRegionPortio isa_parallel_portio_sw_list[] = {
     PORTIO_END_OF_LIST(),
 };
 
+
+static const VMStateDescription vmstate_parallel_isa = {
+    .name = "parallel_isa",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT8(state.dataw, ISAParallelState),
+        VMSTATE_UINT8(state.datar, ISAParallelState),
+        VMSTATE_UINT8(state.status, ISAParallelState),
+        VMSTATE_UINT8(state.control, ISAParallelState),
+        VMSTATE_INT32(state.irq_pending, ISAParallelState),
+        VMSTATE_INT32(state.epp_timeout, ISAParallelState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+
 static void parallel_isa_realizefn(DeviceState *dev, Error **errp)
 {
     static int index;
@@ -518,6 +536,8 @@ static void parallel_isa_realizefn(DeviceState *dev, Error **errp)
                               ? &isa_parallel_portio_hw_list[0]
                               : &isa_parallel_portio_sw_list[0]),
                              s, "parallel");
+
+    vmstate_register(NULL, -1, &vmstate_parallel_isa, isa);
 }
 
 /* Memory mapped interface */
