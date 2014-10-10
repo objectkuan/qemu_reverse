@@ -24,6 +24,7 @@
 struct QemuOpts;
 struct InputEvent;
 struct NetClientState;
+struct CharDriverState;
 
 /* replay clock kinds */
 /* rdtsc */
@@ -148,5 +149,17 @@ void replay_init_sound_in(void *instance, WAVEHDR *hdrs, int sz);
 /*! Initializes queue for sound output. */
 void replay_init_sound_out(void *instance, WAVEHDR *hdrs, int sz);
 #endif
+
+/* Character device */
+
+/*! Registers char driver to save it's events */
+void replay_register_char_driver(struct CharDriverState *chr);
+/*! Saves write to char device event to the log */
+void replay_chr_be_write(struct CharDriverState *s, uint8_t *buf, int len);
+
+/* Other data */
+
+/*! Writes or reads integer value to/from replay log. */
+void replay_data_int(int *data);
 
 #endif

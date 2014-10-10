@@ -600,3 +600,17 @@ void replay_finish(void)
     replay_net_free();
     replay_finish_events();
 }
+
+void replay_data_int(int *data)
+{
+    if (replay_file && replay_mode == REPLAY_MODE_PLAY) {
+        skip_async_events_until(EVENT_DATA_INT);
+        *data = replay_get_dword();
+        replay_check_error();
+        replay_has_unread_data = 0;
+    } else if (replay_file && replay_mode == REPLAY_MODE_RECORD) {
+        replay_save_instructions();
+        replay_put_event(EVENT_DATA_INT);
+        replay_put_dword(*data);
+    }
+}

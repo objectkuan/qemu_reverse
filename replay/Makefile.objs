@@ -6,3 +6,4 @@ obj-y += replay-icount.o
 obj-y += replay-input.o
 obj-y += replay-net.o
 obj-y += replay-audio.o
+obj-y += replay-char.o

@@ -28,6 +28,7 @@
 #include "sysemu/char.h"
 #include "hw/usb.h"
 #include "qmp-commands.h"
+#include "replay/replay.h"
 
 #include <unistd.h>
 #include <fcntl.h>
@@ -126,6 +127,9 @@ int qemu_chr_fe_write(CharDriverState *s, const uint8_t *buf, int len)
 
     qemu_mutex_lock(&s->chr_write_lock);
     ret = s->chr_write(s, buf, len);
+    if (s->replay) {
+        replay_data_int(&ret);
+    }
     qemu_mutex_unlock(&s->chr_write_lock);
     return ret;
 }
@@ -195,9 +199,19 @@ int qemu_chr_fe_read_all(CharDriverState *s, uint8_t *buf, int len)
 
 int qemu_chr_fe_ioctl(CharDriverState *s, int cmd, void *arg)
 {
-    if (!s->chr_ioctl)
-        return -ENOTSUP;
-    return s->chr_ioctl(s, cmd, arg);
+    int res;
+    if (!s->chr_ioctl) {
+        res = -ENOTSUP;
+    } else {
+        res = s->chr_ioctl(s, cmd, arg);
+        if (s->replay) {
+            fprintf(stderr,
+                    "Replay: ioctl is not supported for serial devices yet\n");
+            exit(1);
+        }
+    }
+
+    return res;
 }
 
 int qemu_chr_be_can_write(CharDriverState *s)
@@ -207,17 +221,34 @@ int qemu_chr_be_can_write(CharDriverState *s)
     return s->chr_can_read(s->handler_opaque);
 }
 
-void qemu_chr_be_write(CharDriverState *s, uint8_t *buf, int len)
+void qemu_chr_be_write_impl(CharDriverState *s, uint8_t *buf, int len)
 {
     if (s->chr_read) {
         s->chr_read(s->handler_opaque, buf, len);
     }
 }
 
+void qemu_chr_be_write(CharDriverState *s, uint8_t *buf, int len)
+{
+    if (s->replay) {
+        if (replay_mode == REPLAY_MODE_PLAY) {
+            fprintf(stderr, "Replay: calling qemu_chr_be_write in play mode\n");
+            exit(1);
+        }
+        replay_chr_be_write(s, buf, len);
+    } else {
+        qemu_chr_be_write_impl(s, buf, len);
+    }
+}
+
 int qemu_chr_fe_get_msgfd(CharDriverState *s)
 {
     int fd;
-    return (qemu_chr_fe_get_msgfds(s, &fd, 1) == 1) ? fd : -1;
+    int res = (qemu_chr_fe_get_msgfds(s, &fd, 1) == 1) ? fd : -1;
+    if (s->replay) {
+        replay_data_int(&res);
+    }
+    return res;
 }
 
 int qemu_chr_fe_get_msgfds(CharDriverState *s, int *fds, int len)
@@ -3627,6 +3658,21 @@ CharDriverState *qemu_chr_new(const char *label, const char *filename, void (*in
     if (chr && qemu_opt_get_bool(opts, "mux", 0)) {
         qemu_chr_fe_claim_no_fail(chr);
         monitor_init(chr, MONITOR_USE_READLINE);
+    }
+    return chr;
+}
+
+CharDriverState *qemu_chr_new_replay(const char *label, const char *filename,
+                                     void (*init)(struct CharDriverState *s))
+{
+    if (replay_mode == REPLAY_MODE_PLAY && (strcmp(filename, "null")
+        && strcmp(filename, "vc:80Cx24C"))) {
+        fprintf(stderr, "Only \"-serial null\" can be used with replay\n");
+        exit(1);
+    }
+    CharDriverState *chr = qemu_chr_new(label, filename, init);
+    if (strcmp(filename, "vc:80Cx24C")) {
+        replay_register_char_driver(chr);
     }
     return chr;
 }

@@ -56,6 +56,9 @@ static void replay_run_event(Event *event)
     case REPLAY_ASYNC_EVENT_NETWORK:
         replay_net_send_packet(event->opaque);
         break;
+    case REPLAY_ASYNC_EVENT_CHAR:
+        replay_event_char_run(event->opaque);
+        break;
     default:
         fprintf(stderr, "Replay: invalid async event ID (%d) in the queue\n",
                 event->event_kind);
@@ -186,6 +189,9 @@ void replay_save_events(int opt)
             case REPLAY_ASYNC_EVENT_NETWORK:
                 replay_net_save_packet(event->opaque);
                 break;
+            case REPLAY_ASYNC_EVENT_CHAR:
+                replay_event_char_save(event->opaque);
+                break;
             }
         }
 
@@ -255,6 +261,18 @@ void replay_read_events(int opt)
             read_event_kind = -1;
             read_opt = -1;
             replay_fetch_data_kind();
+            /* continue with the next event */
+            continue;
+        case REPLAY_ASYNC_EVENT_CHAR:
+            e.event_kind = read_event_kind;
+            e.opaque = replay_event_char_read();
+
+            replay_has_unread_data = 0;
+            read_event_kind = -1;
+            read_opt = -1;
+            replay_fetch_data_kind();
+
+            replay_run_event(&e);
             /* continue with the next event */
             continue;
         default:

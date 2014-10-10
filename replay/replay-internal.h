@@ -38,6 +38,8 @@
 /* for async events */
 #define EVENT_ASYNC                 24
 #define EVENT_ASYNC_OPT             25
+/* for int data */
+#define EVENT_DATA_INT              26
 /* for instruction event */
 #define EVENT_INSTRUCTION           32
 /* for clock read/writes */
@@ -56,7 +58,8 @@
 #define REPLAY_ASYNC_EVENT_INPUT       2
 #define REPLAY_ASYNC_EVENT_INPUT_SYNC  3
 #define REPLAY_ASYNC_EVENT_NETWORK     4
-#define REPLAY_ASYNC_COUNT             5
+#define REPLAY_ASYNC_EVENT_CHAR        5
+#define REPLAY_ASYNC_COUNT             6
 
 typedef struct ReplayState {
     /*! Cached clock values. */
@@ -182,5 +185,14 @@ void replay_save_sound_in(void);
 void replay_read_sound_out(void);
 void replay_read_sound_in(void);
 void replay_sound_flush_queue(void);
+
+/* Character devices */
+
+/*! Called to run char device event. */
+void replay_event_char_run(void *opaque);
+/*! Writes char event to the file. */
+void replay_event_char_save(void *opaque);
+/*! Reads char event from the file. */
+void *replay_event_char_read(void);
 
 #endif

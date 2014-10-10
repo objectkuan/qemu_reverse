@@ -2569,7 +2569,9 @@ static int serial_parse(const char *devname)
         exit(1);
     }
     snprintf(label, sizeof(label), "serial%d", index);
-    serial_hds[index] = qemu_chr_new(label, devname, NULL);
+    serial_hds[index] = (replay_mode == REPLAY_MODE_NONE ? qemu_chr_new
+                                                         : qemu_chr_new_replay)
+                        (label, devname, NULL);
     if (!serial_hds[index]) {
         fprintf(stderr, "qemu: could not connect serial device"
                 " to character backend '%s'\n", devname);
