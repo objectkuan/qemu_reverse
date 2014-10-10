@@ -99,6 +99,7 @@ typedef struct tap_win32_overlapped {
     HANDLE output_queue_semaphore;
     HANDLE free_list_semaphore;
     HANDLE tap_semaphore;
+    HANDLE hThread;
     CRITICAL_SECTION output_queue_cs;
     CRITICAL_SECTION free_list_cs;
     OVERLAPPED read_overlapped;
@@ -625,8 +626,9 @@ static int tap_win32_open(tap_win32_overlapped_t **phandle,
 
     *phandle = &tap_overlapped;
 
-    CreateThread(NULL, 0, tap_win32_thread_entry,
-                 (LPVOID)&tap_overlapped, 0, &idThread);
+    tap_overlapped.hThread = CreateThread(NULL, 0, tap_win32_thread_entry,
+                                          (LPVOID)&tap_overlapped,
+                                          0, &idThread);
     return 0;
 }
 
@@ -643,9 +645,8 @@ static void tap_cleanup(NetClientState *nc)
 
     qemu_del_wait_object(s->handle->tap_semaphore, NULL, NULL);
 
-    /* FIXME: need to kill thread and close file handle:
-       tap_win32_close(s);
-    */
+    TerminateThread(s->handle->hThread, 0);
+    CloseHandle(s->handle->handle);
 }
 
 static ssize_t tap_receive(NetClientState *nc, const uint8_t *buf, size_t size)
