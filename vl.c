@@ -4521,6 +4521,9 @@ int main(int argc, char **argv, char **envp)
     /* Done notifiers can load ROMs */
     rom_load_done();
 
+    /* init replay-based icount virtual timer */
+    replay_init_icount();
+
     qemu_system_reset(VMRESET_SILENT);
     if (loadvm) {
         if (load_vmstate(loadvm) < 0) {
@@ -4556,7 +4559,12 @@ int main(int argc, char **argv, char **envp)
         }
     }
 
+    replay_init_timer();
+
     main_loop();
+    if (replay_mode != REPLAY_MODE_NONE) {
+        replay_disable_events();
+    }
     bdrv_close_all();
     pause_all_vcpus();
     res_free();

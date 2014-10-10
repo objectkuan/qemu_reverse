@@ -52,6 +52,7 @@
 #include "exec/ram_addr.h"
 
 #include "qemu/range.h"
+#include "replay/replay.h"
 
 //#define DEBUG_SUBPAGE
 
@@ -1614,6 +1615,9 @@ static void check_watchpoint(int offset, int len_mask, int flags)
             if (!cpu->watchpoint_hit) {
                 cpu->watchpoint_hit = wp;
                 tb_check_watchpoint(cpu);
+                /* Current instruction is already processed by replay.
+                   Set flags that allow skpping this events */
+                replay_undo_last_instruction();
                 if (wp->flags & BP_STOP_BEFORE_ACCESS) {
                     cpu->exception_index = EXCP_DEBUG;
                     cpu_loop_exit(cpu);

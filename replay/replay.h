@@ -17,6 +17,8 @@
 #include <time.h>
 #include "qapi-types.h"
 
+struct QemuOpts;
+
 /* replay clock kinds */
 /* rdtsc */
 #define REPLAY_CLOCK_REAL_TICKS 0
@@ -34,6 +36,15 @@ extern int replay_icount;
 
 /*! Returns replay play submode */
 ReplaySubmode replay_get_play_submode(void);
+
+/* Replay process control functions */
+
+/*! Enables recording or saving event log with specified parameters */
+void replay_configure(struct QemuOpts *opts, int mode);
+/*! Initializes timers used for snapshotting and enables events recording */
+void replay_init_timer(void);
+/*! Closes replay log file and frees other resources. */
+void replay_finish(void);
 
 /* Processing the instructions */
 

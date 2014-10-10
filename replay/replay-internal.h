@@ -36,6 +36,8 @@
 
 /* for checkpoint event */
 #define EVENT_CHECKPOINT            96
+/* end of log event */
+#define EVENT_END                   127
 
 /* Asynchronous events IDs */
 

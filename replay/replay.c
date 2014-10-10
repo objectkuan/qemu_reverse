@@ -13,10 +13,18 @@
 #include "replay.h"
 #include "replay-internal.h"
 
+/* Current version of the replay mechanism.
+   Increase it when file format changes. */
+#define REPLAY_VERSION              0xe02001
+/* Size of replay log header */
+#define HEADER_SIZE                 (sizeof(uint32_t) + sizeof(uint64_t))
+
 ReplayMode replay_mode = REPLAY_MODE_NONE;
 /*! Stores current submode for PLAY mode */
 ReplaySubmode play_submode = REPLAY_SUBMODE_UNKNOWN;
 
+/* Name of replay file  */
+static char *replay_filename;
 /* Suffix for the disk images filenames */
 char *replay_image_suffix;
 
@@ -238,4 +246,124 @@ int replay_checkpoint(unsigned int checkpoint)
     }
 
     return 1;
+}
+
+static void replay_enable(const char *fname, int mode)
+{
+    const char *fmode = NULL;
+    if (replay_file) {
+        fprintf(stderr,
+                "Replay: some record/replay operation is already started\n");
+        return;
+    }
+
+    switch (mode) {
+    case REPLAY_MODE_RECORD:
+        fmode = "wb";
+        break;
+    case REPLAY_MODE_PLAY:
+        fmode = "rb";
+        play_submode = REPLAY_SUBMODE_NORMAL;
+        break;
+    default:
+        fprintf(stderr, "Replay: internal error: invalid replay mode\n");
+        exit(1);
+    }
+
+    atexit(replay_finish);
+
+    replay_file = fopen(fname, fmode);
+    if (replay_file == NULL) {
+        fprintf(stderr, "Replay: open %s: %s\n", fname, strerror(errno));
+        exit(1);
+    }
+
+    replay_filename = g_strdup(fname);
+
+    replay_mode = mode;
+    replay_has_unread_data = 0;
+    replay_data_kind = -1;
+    replay_state.skipping_instruction = 0;
+    replay_state.current_step = 0;
+
+    /* skip file header for RECORD and check it for PLAY */
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        fseek(replay_file, HEADER_SIZE, SEEK_SET);
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        unsigned int version = replay_get_dword();
+        uint64_t offset = replay_get_qword();
+        if (version != REPLAY_VERSION) {
+            fprintf(stderr, "Replay: invalid input log file version\n");
+            exit(1);
+        }
+        /* go to the beginning */
+        fseek(replay_file, 12, SEEK_SET);
+    }
+
+    replay_init_events();
+}
+
+void replay_configure(QemuOpts *opts, int mode)
+{
+    const char *fname;
+
+    fname = qemu_opt_get(opts, "fname");
+    if (!fname) {
+        fprintf(stderr, "File name not specified for replay\n");
+        exit(1);
+    }
+
+    const char *suffix = qemu_opt_get(opts, "suffix");
+    if (suffix) {
+        replay_image_suffix = g_strdup(suffix);
+    } else {
+        replay_image_suffix = g_strdup("replay_qcow");
+    }
+
+    replay_enable(fname, mode);
+}
+
+void replay_init_timer(void)
+{
+    if (replay_mode == REPLAY_MODE_NONE) {
+        return;
+    }
+
+    replay_enable_events();
+}
+
+void replay_finish(void)
+{
+    if (replay_mode == REPLAY_MODE_NONE) {
+        return;
+    }
+
+    replay_save_instructions();
+
+    /* finalize the file */
+    if (replay_file) {
+        if (replay_mode == REPLAY_MODE_RECORD) {
+            uint64_t offset = 0;
+            /* write end event */
+            replay_put_event(EVENT_END);
+
+            /* write header */
+            fseek(replay_file, 0, SEEK_SET);
+            replay_put_dword(REPLAY_VERSION);
+            replay_put_qword(offset);
+        }
+
+        fclose(replay_file);
+        replay_file = NULL;
+    }
+    if (replay_filename) {
+        g_free(replay_filename);
+        replay_filename = NULL;
+    }
+    if (replay_image_suffix) {
+        g_free(replay_image_suffix);
+        replay_image_suffix = NULL;
+    }
+
+    replay_finish_events();
 }
