@@ -3755,3 +3755,25 @@ Example:
 <- { "return": {} }
 
 EQMP
+
+    {
+        .name       = "replay-info",
+        .args_type  = "",
+        .mhandler.cmd_new = qmp_marshal_input_replay_info,
+    },
+
+SQMP
+replay-info
+-----------
+
+Shows information about replay process. This information includes
+current execution step (number of executed processor instructions),
+replay mode (record, play or none), and replay submode (reverse or
+normal execution in play mode).
+
+Example:
+
+-> { "execute": "replay-info" }
+<- { "return": { "step": 651488674, "mode": "record", "submode": "unknown" } }
+
+EQMP

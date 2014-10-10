@@ -1788,6 +1788,18 @@ STEXI
 show available trace events and their state
 ETEXI
 
+    {
+        .name       = "replay_info",
+        .args_type  = "",
+        .params     = "",
+        .help       = "show replay info",
+        .mhandler.cmd = do_replay_info,
+    },
+
+STEXIaddress@hidden replay_info
+Shows information about replay process.
+ETEXI
+
 STEXI
 @end table
 ETEXI

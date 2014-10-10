@@ -3523,3 +3523,30 @@
 ##
 { 'enum': 'ReplaySubmode',
   'data': [ 'unknown', 'normal' ] }
+
+##
+# @ReplayInfo:
+#
+# Information about replay process
+#
+# @mode: replay mode (none, play, record)
+#
+# @submode: play submode (reverse or normal execution)
+#
+# @step: current step of record or play
+#
+# Since: 2.2
+##
+{ 'type': 'ReplayInfo',
+  'data': {'mode': 'ReplayMode', 'submode': 'ReplaySubmode', 'step': 'uint64'} }
+
+##
+# @replay-info
+#
+# Query the status of replay engine
+#
+# Returns: @ReplayInfo reflecting the status
+#
+# Since: 2.2
+##
+{ 'command': 'replay-info', 'returns': 'ReplayInfo' }

@@ -73,6 +73,7 @@
 #include "block/qapi.h"
 #include "qapi/qmp-event.h"
 #include "qapi-event.h"
+#include "replay/replay.h"
 
 /* for pic/irq_info */
 #if defined(TARGET_SPARC)
@@ -1170,6 +1171,25 @@ static void do_watchdog_action(Monitor *mon, const QDict *qdict)
     const char *action = qdict_get_str(qdict, "action");
     if (select_watchdog_action(action) == -1) {
         monitor_printf(mon, "Unknown watchdog action '%s'\n", action);
+    }
+}
+
+static void do_replay_info(Monitor *mon, const QDict *qdict)
+{
+    switch (replay_mode) {
+    case REPLAY_MODE_NONE:
+        monitor_printf(mon, "Replay is not enabled\n");
+        break;
+    default:
+        monitor_printf(mon, "Replay mode: %s ",
+                       ReplayMode_lookup[replay_mode]);
+        if (replay_mode == REPLAY_MODE_PLAY) {
+            monitor_printf(mon, "(%s)",
+                           ReplaySubmode_lookup[replay_get_play_submode()]);
+        }
+        monitor_printf(mon, "\n\tcurrent step: %" PRId64 "\n",
+                       replay_get_current_step());
+        break;
     }
 }
 
