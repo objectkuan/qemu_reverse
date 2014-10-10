@@ -26,6 +26,7 @@
 #include "monitor/monitor.h"
 #include "qemu/timer.h"
 #include "sysemu/sysemu.h"
+#include "replay/replay.h"
 
 #define AUDIO_CAP "audio"
 #include "audio_int.h"
@@ -1201,7 +1202,9 @@ void AUD_set_active_out (SWVoiceOut *sw, int on)
             if (!hw->enabled) {
                 hw->enabled = 1;
                 if (s->vm_running) {
-                    hw->pcm_ops->ctl_out (hw, VOICE_ENABLE, conf.try_poll_out);
+                    hw->pcm_ops->ctl_out(hw, VOICE_ENABLE,
+                                         replay_mode == REPLAY_MODE_NONE
+                                             ? conf.try_poll_out : 0);
                     audio_reset_timer (s);
                 }
             }
@@ -1763,11 +1766,13 @@ static void audio_vm_change_state_handler (void *opaque, int running,
 
     s->vm_running = running;
     while ((hwo = audio_pcm_hw_find_any_enabled_out (hwo))) {
-        hwo->pcm_ops->ctl_out (hwo, op, conf.try_poll_out);
+        hwo->pcm_ops->ctl_out(hwo, op, replay_mode == REPLAY_MODE_NONE
+                                           ? conf.try_poll_out : 0);
     }
 
     while ((hwi = audio_pcm_hw_find_any_enabled_in (hwi))) {
-        hwi->pcm_ops->ctl_in (hwi, op, conf.try_poll_in);
+        hwi->pcm_ops->ctl_in(hwi, op, replay_mode == REPLAY_MODE_NONE
+                                          ? conf.try_poll_in : 0);
     }
     audio_reset_timer (s);
 }
@@ -1810,9 +1815,10 @@ static void audio_atexit (void)
 
 static const VMStateDescription vmstate_audio = {
     .name = "audio",
-    .version_id = 1,
+    .version_id = 2,
     .minimum_version_id = 1,
     .fields = (VMStateField[]) {
+        VMSTATE_TIMER_V(ts, AudioState, 2),
         VMSTATE_END_OF_LIST()
     }
 };

@@ -151,5 +151,9 @@ void replay_save_instructions(void)
             replay_state.current_step += first_cpu->instructions_count;
             first_cpu->instructions_count = 0;
         }
+#ifdef _WIN32
+        replay_save_sound_in();
+        replay_save_sound_out();
+#endif
     }
 }

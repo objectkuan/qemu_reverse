@@ -2,7 +2,9 @@
 
 #include "qemu-common.h"
 #include "sysemu/sysemu.h"
+#include "migration/vmstate.h"
 #include "audio.h"
+#include "replay/replay.h"
 
 #define AUDIO_CAP "winwave"
 #include "audio_int.h"
@@ -47,6 +49,7 @@ typedef struct {
     int paused;
     int rpos;
     int avail;
+    int non_added;
     CRITICAL_SECTION crit_sect;
 } WaveVoiceIn;
 
@@ -124,6 +127,24 @@ static void winwave_anal_close_out (WaveVoiceOut *wave)
     wave->hwo = NULL;
 }
 
+void winwave_callback_out_impl(void *dwInstance, WAVEHDR *h)
+{
+    WaveVoiceOut *wave = (WaveVoiceOut *)dwInstance;
+    if (!h->dwUser) {
+        h->dwUser = 1;
+        EnterCriticalSection(&wave->crit_sect);
+        {
+            wave->avail += conf.dac_samples;
+        }
+        LeaveCriticalSection(&wave->crit_sect);
+        if (wave->hw.poll_mode) {
+            if (!SetEvent(wave->event)) {
+                dolog("DAC SetEvent failed %lx\n", GetLastError());
+            }
+        }
+    }
+}
+
 static void CALLBACK winwave_callback_out (
     HWAVEOUT hwo,
     UINT msg,
@@ -132,24 +153,16 @@ static void CALLBACK winwave_callback_out (
     DWORD_PTR dwParam2
     )
 {
-    WaveVoiceOut *wave = (WaveVoiceOut *) dwInstance;
-
     switch (msg) {
     case WOM_DONE:
         {
-            WAVEHDR *h = (WAVEHDR *) dwParam1;
-            if (!h->dwUser) {
-                h->dwUser = 1;
-                EnterCriticalSection (&wave->crit_sect);
-                {
-                    wave->avail += conf.dac_samples;
-                }
-                LeaveCriticalSection (&wave->crit_sect);
-                if (wave->hw.poll_mode) {
-                    if (!SetEvent (wave->event)) {
-                        dolog ("DAC SetEvent failed %lx\n", GetLastError ());
-                    }
-                }
+            if (replay_mode == REPLAY_MODE_RECORD) {
+                replay_sound_out_event((WAVEHDR *)dwParam1);
+            } else if (replay_mode == REPLAY_MODE_PLAY) {
+                /* Do nothing */
+            } else {
+                winwave_callback_out_impl((void *)dwInstance,
+                                          (WAVEHDR *)dwParam1);
             }
         }
         break;
@@ -163,6 +176,21 @@ static void CALLBACK winwave_callback_out (
     }
 }
 
+static const VMStateDescription vmstate_audio_out = {
+    .name = "audio_out",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_INT32(enabled, HWVoiceOut),
+        VMSTATE_INT32(poll_mode, HWVoiceOut),
+        VMSTATE_INT32(pending_disable, HWVoiceOut),
+        VMSTATE_INT32(rpos, HWVoiceOut),
+        VMSTATE_UINT64(ts_helper, HWVoiceOut),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static int winwave_init_out (HWVoiceOut *hw, struct audsettings *as)
 {
     int i;
@@ -172,6 +200,8 @@ static int winwave_init_out (HWVoiceOut *hw, struct audsettings *as)
     WaveVoiceOut *wave;
 
     wave = (WaveVoiceOut *) hw;
+
+    vmstate_register(NULL, 0, &vmstate_audio_out, hw);
 
     InitializeCriticalSection (&wave->crit_sect);
 
@@ -219,6 +249,10 @@ static int winwave_init_out (HWVoiceOut *hw, struct audsettings *as)
         }
     }
 
+    if (replay_mode != REPLAY_MODE_NONE) {
+        replay_init_sound_out(wave, wave->hdrs, conf.dac_headers);
+    }
+
     return 0;
 
  err4:
@@ -262,10 +296,20 @@ static int winwave_run_out (HWVoiceOut *hw, int live)
         WAVEHDR *h = &wave->hdrs[wave->curhdr];
 
         h->dwUser = 0;
-        mr = waveOutWrite (wave->hwo, h, sizeof (*h));
-        if (mr != MMSYSERR_NOERROR) {
-            winwave_logerr (mr, "waveOutWrite(%d)", wave->curhdr);
-            break;
+        /* Only events will be simulated in REPLAY_PLAY mode,
+           no sounds will be emitted */
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            mr = waveOutWrite(wave->hwo, h, sizeof(*h));
+            if (mr != MMSYSERR_NOERROR) {
+                winwave_logerr(mr, "waveOutWrite(%d)", wave->curhdr);
+                break;
+            }
+        } else {
+            /* This header will be passed to callback function,
+               when event will be read in the log */
+            if (replay_sound_out_event(h)) {
+                break;
+            }
         }
 
         wave->pending -= conf.dac_samples;
@@ -382,6 +426,26 @@ static void winwave_anal_close_in (WaveVoiceIn *wave)
     wave->hwi = NULL;
 }
 
+void winwave_callback_in_impl(void *dwInstance, WAVEHDR *h)
+{
+    WaveVoiceIn *wave = (WaveVoiceIn *)dwInstance;
+
+    if (!h->dwUser) {
+        h->dwUser = 1;
+        EnterCriticalSection(&wave->crit_sect);
+        {
+            wave->avail += conf.adc_samples;
+        }
+        LeaveCriticalSection(&wave->crit_sect);
+
+        if (wave->hw.poll_mode) {
+            if (!SetEvent(wave->event)) {
+                dolog("ADC SetEvent failed %lx\n", GetLastError());
+            }
+        }
+    }
+}
+
 static void CALLBACK winwave_callback_in (
     HWAVEIN *hwi,
     UINT msg,
@@ -390,24 +454,16 @@ static void CALLBACK winwave_callback_in (
     DWORD_PTR dwParam2
     )
 {
-    WaveVoiceIn *wave = (WaveVoiceIn *) dwInstance;
-
     switch (msg) {
     case WIM_DATA:
         {
-            WAVEHDR *h = (WAVEHDR *) dwParam1;
-            if (!h->dwUser) {
-                h->dwUser = 1;
-                EnterCriticalSection (&wave->crit_sect);
-                {
-                    wave->avail += conf.adc_samples;
-                }
-                LeaveCriticalSection (&wave->crit_sect);
-                if (wave->hw.poll_mode) {
-                    if (!SetEvent (wave->event)) {
-                        dolog ("ADC SetEvent failed %lx\n", GetLastError ());
-                    }
-                }
+            if (replay_mode == REPLAY_MODE_RECORD) {
+                replay_sound_in_event((WAVEHDR *)dwParam1);
+            } else if (replay_mode == REPLAY_MODE_PLAY) {
+                /* Do nothing */
+            } else {
+                winwave_callback_in_impl((void *)dwInstance,
+                                         (WAVEHDR *)dwParam1);
             }
         }
         break;
@@ -421,9 +477,10 @@ static void CALLBACK winwave_callback_in (
     }
 }
 
-static void winwave_add_buffers (WaveVoiceIn *wave, int samples)
+static int winwave_add_buffers(WaveVoiceIn *wave, int samples)
 {
     int doreset;
+    int added = 0;
 
     doreset = wave->hw.poll_mode && (samples >= conf.adc_samples);
     if (doreset && !ResetEvent (wave->event)) {
@@ -435,14 +492,38 @@ static void winwave_add_buffers (WaveVoiceIn *wave, int samples)
         WAVEHDR *h = &wave->hdrs[wave->curhdr];
 
         h->dwUser = 0;
-        mr = waveInAddBuffer (wave->hwi, h, sizeof (*h));
-        if (mr != MMSYSERR_NOERROR) {
-            winwave_logerr (mr, "waveInAddBuffer(%d)", wave->curhdr);
+        /* Add buffer to replay queue in replay mode - it will be
+           loaded from log file. */
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            mr = waveInAddBuffer(wave->hwi, h, sizeof(*h));
+            if (mr != MMSYSERR_NOERROR) {
+                winwave_logerr(mr, "waveInAddBuffer(%d)", wave->curhdr);
+            }
+        } else {
+            replay_sound_in_event(h);
         }
         wave->curhdr = (wave->curhdr + 1) % conf.adc_headers;
         samples -= conf.adc_samples;
+        added += conf.adc_samples;
     }
+
+    return added;
 }
+
+static const VMStateDescription vmstate_audio_in = {
+    .name = "audio_in",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_INT32(enabled, HWVoiceIn),
+        VMSTATE_INT32(poll_mode, HWVoiceIn),
+        VMSTATE_INT32(wpos, HWVoiceIn),
+        VMSTATE_INT32(total_samples_captured, HWVoiceIn),
+        VMSTATE_UINT64(ts_helper, HWVoiceIn),
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 static int winwave_init_in (HWVoiceIn *hw, struct audsettings *as)
 {
@@ -453,6 +534,8 @@ static int winwave_init_in (HWVoiceIn *hw, struct audsettings *as)
     WaveVoiceIn *wave;
 
     wave = (WaveVoiceIn *) hw;
+
+    vmstate_register(NULL, 0, &vmstate_audio_in, hw);
 
     InitializeCriticalSection (&wave->crit_sect);
 
@@ -478,6 +561,7 @@ static int winwave_init_in (HWVoiceIn *hw, struct audsettings *as)
     audio_pcm_init_info (&hw->info, as);
     hw->samples = conf.adc_samples * conf.adc_headers;
     wave->avail = 0;
+    wave->non_added = 0;
 
     wave->pcm_buf = audio_calloc (AUDIO_FUNC, conf.adc_samples,
                                   conf.adc_headers << hw->info.shift);
@@ -498,6 +582,10 @@ static int winwave_init_in (HWVoiceIn *hw, struct audsettings *as)
             winwave_logerr (mr, "waveInPrepareHeader(%d)", i);
             goto err4;
         }
+    }
+
+    if (replay_mode != REPLAY_MODE_NONE) {
+        replay_init_sound_in(wave, wave->hdrs, conf.adc_headers);
     }
 
     wave->paused = 1;
@@ -570,6 +658,7 @@ static int winwave_run_in (HWVoiceIn *hw)
     LeaveCriticalSection (&wave->crit_sect);
 
     ret = decr;
+    wave->non_added += ret;
     while (decr) {
         int left = hw->samples - hw->wpos;
         int conv = audio_MIN (left, decr);
@@ -582,7 +671,7 @@ static int winwave_run_in (HWVoiceIn *hw)
         decr -= conv;
     }
 
-    winwave_add_buffers (wave, ret);
+    wave->non_added -= winwave_add_buffers(wave, wave->non_added);
     return ret;
 }
 

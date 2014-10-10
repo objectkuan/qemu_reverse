@@ -21,6 +21,10 @@
 #define EVENT_TIME_T                1
 /* for tm event */
 #define EVENT_TM                    2
+/* for outgoing sound event */
+#define EVENT_SOUND_OUT             7
+/* for incoming sound event */
+#define EVENT_SOUND_IN              8
 /* for software interrupt */
 #define EVENT_INTERRUPT             15
 /* for shutdown request */
@@ -168,5 +172,15 @@ void *replay_net_read_packet(void);
 /*! Called to send packet that was read or received from external input
     to the net queue. */
 void replay_net_send_packet(void *opaque);
+
+/* Sound events */
+
+/*! Returns true, when there are any pending sound events. */
+bool replay_has_sound_events(void);
+void replay_save_sound_out(void);
+void replay_save_sound_in(void);
+void replay_read_sound_out(void);
+void replay_read_sound_in(void);
+void replay_sound_flush_queue(void);
 
 #endif

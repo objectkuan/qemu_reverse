@@ -15,6 +15,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <time.h>
+#ifdef _WIN32
+#include <windows.h>
+#include <mmsystem.h>
+#endif
 #include "qapi-types.h"
 
 struct QemuOpts;
@@ -127,5 +131,22 @@ void replay_add_network_client(struct NetClientState *nc);
 /*! Saves incoming network packet in the replay log. */
 void replay_save_net_packet(struct NetClientState *nc, const uint8_t *buf,
                             size_t size);
+
+/* Audio */
+
+#ifdef _WIN32
+/*! Microphone event. */
+void replay_sound_in_event(WAVEHDR *hdr);
+/*! Adds header to the queue.
+    In record mode this header is queued for saving into log.
+    In replay mode this header is queued for reading from log.
+    Returns 1 in replay mode when queue is full.
+    Otherwise returns 0. */
+int replay_sound_out_event(WAVEHDR *hdr);
+/*! Initializes queue for sound input. */
+void replay_init_sound_in(void *instance, WAVEHDR *hdrs, int sz);
+/*! Initializes queue for sound output. */
+void replay_init_sound_out(void *instance, WAVEHDR *hdrs, int sz);
+#endif
 
 #endif
