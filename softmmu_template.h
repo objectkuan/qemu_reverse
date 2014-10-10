@@ -311,6 +311,15 @@ glue(glue(helper_ld, SUFFIX), MMUSUFFIX)(CPUArchState *env, target_ulong addr,
     return helper_te_ld_name (env, addr, mmu_idx, GETRA());
 }
 
+DATA_TYPE
+glue(glue(helper_call_ld, SUFFIX), MMUSUFFIX)(CPUArchState *env,
+                                              target_ulong addr,
+                                              int mmu_idx,
+                                              uintptr_t retaddr)
+{
+    return helper_te_ld_name(env, addr, mmu_idx, retaddr);
+}
+
 #ifndef SOFTMMU_CODE_ACCESS
 
 /* Provide signed versions of the load routines as well.  We can of course
@@ -503,6 +512,15 @@ glue(glue(helper_st, SUFFIX), MMUSUFFIX)(CPUArchState *env, target_ulong addr,
                                          DATA_TYPE val, int mmu_idx)
 {
     helper_te_st_name(env, addr, val, mmu_idx, GETRA());
+}
+
+void
+glue(glue(helper_call_st, SUFFIX), MMUSUFFIX)(CPUArchState *env,
+                                              target_ulong addr,
+                                              DATA_TYPE val, int mmu_idx,
+                                              uintptr_t retaddr)
+{
+    helper_te_st_name(env, addr, val, mmu_idx, retaddr);
 }
 
 #endif /* !defined(SOFTMMU_CODE_ACCESS) */

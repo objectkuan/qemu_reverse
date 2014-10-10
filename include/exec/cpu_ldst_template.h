@@ -61,6 +61,17 @@
 #define MMUSUFFIX _mmu
 #endif
 
+/* inline helper ld function */
+
+static inline DATA_TYPE
+glue(glue(helper_inline_ld, SUFFIX), MEMSUFFIX)(CPUArchState *env,
+                                                target_ulong addr,
+                                                int mmu_idx)
+{
+    return glue(glue(helper_call_ld, SUFFIX), MMUSUFFIX)(env, addr, mmu_idx,
+                                                         GETRA());
+}
+
 /* generic load/store macros */
 
 static inline RES_TYPE
@@ -76,7 +87,8 @@ glue(glue(cpu_ld, USUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
     mmu_idx = CPU_MMU_INDEX;
     if (unlikely(env->tlb_table[mmu_idx][page_index].ADDR_READ !=
                  (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))))) {
-        res = glue(glue(helper_ld, SUFFIX), MMUSUFFIX)(env, addr, mmu_idx);
+        res = glue(glue(helper_inline_ld, SUFFIX), MEMSUFFIX)(env, addr,
+                                                              mmu_idx);
     } else {
         uintptr_t hostaddr = addr + env->tlb_table[mmu_idx][page_index].addend;
         res = glue(glue(ld, USUFFIX), _raw)(hostaddr);
@@ -97,8 +109,8 @@ glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
     mmu_idx = CPU_MMU_INDEX;
     if (unlikely(env->tlb_table[mmu_idx][page_index].ADDR_READ !=
                  (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))))) {
-        res = (DATA_STYPE)glue(glue(helper_ld, SUFFIX),
-                               MMUSUFFIX)(env, addr, mmu_idx);
+        res = (DATA_STYPE)glue(glue(helper_inline_ld, SUFFIX),
+                               MEMSUFFIX)(env, addr, mmu_idx);
     } else {
         uintptr_t hostaddr = addr + env->tlb_table[mmu_idx][page_index].addend;
         res = glue(glue(lds, SUFFIX), _raw)(hostaddr);
@@ -108,6 +120,17 @@ glue(glue(cpu_lds, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr)
 #endif
 
 #ifndef SOFTMMU_CODE_ACCESS
+
+/* inline helper st function */
+
+static inline void
+glue(glue(helper_inline_st, SUFFIX), MEMSUFFIX)(CPUArchState *env,
+                                                target_ulong addr,
+                                                DATA_TYPE val, int mmu_idx)
+{
+    glue(glue(helper_call_st, SUFFIX), MMUSUFFIX)(env, addr, val, mmu_idx,
+                                                  GETRA());
+}
 
 /* generic store macro */
 
@@ -124,7 +147,7 @@ glue(glue(cpu_st, SUFFIX), MEMSUFFIX)(CPUArchState *env, target_ulong ptr,
     mmu_idx = CPU_MMU_INDEX;
     if (unlikely(env->tlb_table[mmu_idx][page_index].addr_write !=
                  (addr & (TARGET_PAGE_MASK | (DATA_SIZE - 1))))) {
-        glue(glue(helper_st, SUFFIX), MMUSUFFIX)(env, addr, v, mmu_idx);
+        glue(glue(helper_inline_st, SUFFIX), MEMSUFFIX)(env, addr, v, mmu_idx);
     } else {
         uintptr_t hostaddr = addr + env->tlb_table[mmu_idx][page_index].addend;
         glue(glue(st, SUFFIX), _raw)(hostaddr, v);

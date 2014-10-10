@@ -344,6 +344,33 @@ bool io_mem_write(struct MemoryRegion *mr, hwaddr addr,
 void tlb_fill(CPUState *cpu, target_ulong addr, int is_write, int mmu_idx,
               uintptr_t retaddr);
 
+uint8_t helper_call_ldb_cmmu(CPUArchState *env, target_ulong addr,
+                             int mmu_idx, uintptr_t retaddr);
+uint16_t helper_call_ldw_cmmu(CPUArchState *env, target_ulong addr,
+                              int mmu_idx, uintptr_t retaddr);
+uint32_t helper_call_ldl_cmmu(CPUArchState *env, target_ulong addr,
+                              int mmu_idx, uintptr_t retaddr);
+uint64_t helper_call_ldq_cmmu(CPUArchState *env, target_ulong addr,
+                              int mmu_idx, uintptr_t retaddr);
+
+uint8_t helper_call_ldb_mmu(CPUArchState *env, target_ulong addr,
+                            int mmu_idx, uintptr_t retaddr);
+uint16_t helper_call_ldw_mmu(CPUArchState *env, target_ulong addr,
+                             int mmu_idx, uintptr_t retaddr);
+uint32_t helper_call_ldl_mmu(CPUArchState *env, target_ulong addr,
+                             int mmu_idx, uintptr_t retaddr);
+uint64_t helper_call_ldq_mmu(CPUArchState *env, target_ulong addr,
+                             int mmu_idx, uintptr_t retaddr);
+
+void helper_call_stb_mmu(CPUArchState *env, target_ulong addr,
+                         uint8_t val, int mmu_idx, uintptr_t retaddr);
+void helper_call_stw_mmu(CPUArchState *env, target_ulong addr,
+                         uint16_t val, int mmu_idx, uintptr_t retaddr);
+void helper_call_stl_mmu(CPUArchState *env, target_ulong addr,
+                         uint32_t val, int mmu_idx, uintptr_t retaddr);
+void helper_call_stq_mmu(CPUArchState *env, target_ulong addr,
+                         uint64_t val, int mmu_idx, uintptr_t retaddr);
+
 #endif
 
 #if defined(CONFIG_USER_ONLY)
