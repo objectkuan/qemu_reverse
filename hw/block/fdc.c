@@ -695,10 +695,34 @@ static const VMStateDescription vmstate_fdrive_media_rate = {
     }
 };
 
-static const VMStateDescription vmstate_fdrive = {
-    .name = "fdrive",
+static bool fdrive_perpendicular_needed(void *opaque)
+{
+    FDrive *drive = opaque;
+
+    return drive->perpendicular != 0;
+}
+
+static const VMStateDescription vmstate_fdrive_perpendicular = {
+    .name = "fdrive/perpendicular",
     .version_id = 1,
     .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT8(perpendicular, FDrive),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static int fdrive_post_load(void *opaque, int version_id)
+{
+    fd_revalidate(opaque);
+    return 0;
+}
+
+static const VMStateDescription vmstate_fdrive = {
+    .name = "fdrive",
+    .version_id = 2,
+    .minimum_version_id = 1,
+    .post_load = fdrive_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_UINT8(head, FDrive),
         VMSTATE_UINT8(track, FDrive),
@@ -713,6 +737,9 @@ static const VMStateDescription vmstate_fdrive = {
             .vmsd = &vmstate_fdrive_media_rate,
             .needed = &fdrive_media_rate_needed,
         } , {
+            .vmsd = &vmstate_fdrive_perpendicular,
+            .needed = &fdrive_perpendicular_needed,
+        } , {
             /* empty */
         }
     }
@@ -725,6 +752,14 @@ static void fdc_pre_save(void *opaque)
     s->dor_vmstate = s->dor | GET_CUR_DRV(s);
 }
 
+static int fdc_pre_load(void *opaque)
+{
+    FDCtrl *s = opaque;
+    s->reset_sensei = 0;
+    timer_del(s->result_timer);
+    return 0;
+}
+
 static int fdc_post_load(void *opaque, int version_id)
 {
     FDCtrl *s = opaque;
@@ -734,11 +769,46 @@ static int fdc_post_load(void *opaque, int version_id)
     return 0;
 }
 
+static bool fdc_reset_sensei_needed(void *opaque)
+{
+    FDCtrl *s = opaque;
+
+    return s->reset_sensei != 0;
+}
+
+static const VMStateDescription vmstate_fdc_reset_sensei = {
+    .name = "fdc/reset_sensei",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT32(reset_sensei, FDCtrl),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool fdc_result_timer_needed(void *opaque)
+{
+    FDCtrl *s = opaque;
+
+    return timer_pending(s->result_timer);
+}
+
+static const VMStateDescription vmstate_fdc_result_timer = {
+    .name = "fdc/result_timer",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_TIMER(result_timer, FDCtrl),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static const VMStateDescription vmstate_fdc = {
     .name = "fdc",
-    .version_id = 2,
+    .version_id = 3,
     .minimum_version_id = 2,
     .pre_save = fdc_pre_save,
+    .pre_load = fdc_pre_load,
     .post_load = fdc_post_load,
     .fields = (VMStateField[]) {
         /* Controller State */
@@ -770,6 +840,17 @@ static const VMStateDescription vmstate_fdc = {
         VMSTATE_STRUCT_ARRAY(drives, FDCtrl, MAX_FD, 1,
                              vmstate_fdrive, FDrive),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (VMStateSubsection[]) {
+        {
+            .vmsd = &vmstate_fdc_reset_sensei,
+            .needed = fdc_reset_sensei_needed,
+        } , {
+            .vmsd = &vmstate_fdc_result_timer,
+            .needed = fdc_result_timer_needed,
+        } , {
+            /* empty */
+        }
     }
 };
 
