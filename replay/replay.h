@@ -53,6 +53,10 @@ void replay_configure(struct QemuOpts *opts, int mode);
 void replay_init_timer(void);
 /*! Closes replay log file and frees other resources. */
 void replay_finish(void);
+/*! Sets step where execution should be stopped. */
+void replay_set_break(uint64_t step);
+/*! Retrieves current breakpoint step. */
+uint64_t replay_get_break_step(void);
 
 /* Processing the instructions */
 

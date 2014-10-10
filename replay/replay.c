@@ -31,6 +31,8 @@ static char *replay_filename;
 char *replay_image_suffix;
 
 ReplayState replay_state;
+/*! Step for stopping execution at. */
+static uint64_t replay_break_step = -1;
 
 /*
     Auto-saving for VM states data
@@ -285,6 +287,19 @@ void replay_instruction(int process_events)
         } else if (replay_mode == REPLAY_MODE_PLAY) {
             skip_async_events_until(EVENT_INSTRUCTION);
             if (first_cpu->instructions_count >= 1) {
+                if (replay_get_current_step() == replay_break_step) {
+                    replay_break_step = -1;
+
+                    /* for stopping VM */
+                    if (play_submode == REPLAY_SUBMODE_NORMAL) {
+                        first_cpu->exception_index = EXCP_DEBUG;
+                        monitor_printf(default_mon, "Execution has stopped.\n");
+                        vm_stop(EXCP_DEBUG);
+                    }
+                    /* for breaking execution loop */
+                    cpu_exit(first_cpu);
+                    return;
+                }
                 ++replay_state.current_step;
                 --first_cpu->instructions_count;
                 if (first_cpu->instructions_count == 0) {
@@ -313,7 +328,8 @@ bool replay_has_async_request(void)
     }
 
     if (replay_mode == REPLAY_MODE_PLAY) {
-        if (skip_async_events(EVENT_ASYNC)) {
+        if (skip_async_events(EVENT_ASYNC)
+            || replay_get_current_step() == replay_break_step) {
             return true;
         }
 
@@ -471,6 +487,7 @@ static void replay_enable(const char *fname, int mode)
     replay_state.skipping_instruction = 0;
     replay_state.current_step = 0;
     current_saved_state = 0;
+    replay_break_step = -1;
 
     replay_net_init();
 
@@ -642,4 +659,14 @@ void replay_data_buffer(unsigned char *data, size_t size)
         replay_put_event(EVENT_DATA_BUFFER);
         replay_put_array(data, size);
     }
+}
+
+void replay_set_break(uint64_t step)
+{
+    replay_break_step = step;
+}
+
+uint64_t replay_get_break_step(void)
+{
+    return replay_break_step;
 }

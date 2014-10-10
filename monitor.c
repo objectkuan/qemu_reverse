@@ -1184,12 +1184,32 @@ static void do_replay_info(Monitor *mon, const QDict *qdict)
         monitor_printf(mon, "Replay mode: %s ",
                        ReplayMode_lookup[replay_mode]);
         if (replay_mode == REPLAY_MODE_PLAY) {
+            uint64_t bp = replay_get_break_step();
             monitor_printf(mon, "(%s)",
                            ReplaySubmode_lookup[replay_get_play_submode()]);
+            if (bp != -1ULL) {
+                monitor_printf(mon, "\n\tbreakpoint step: %" PRId64 "\n", bp);
+            }
         }
         monitor_printf(mon, "\n\tcurrent step: %" PRId64 "\n",
                        replay_get_current_step());
         break;
+    }
+}
+
+static void do_replay_break(Monitor *mon, const QDict *qdict)
+{
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        uint64_t step = qdict_get_int(qdict, "step");
+        if (step >= replay_get_current_step()) {
+            monitor_printf(mon, "Setting break at step: %" PRId64 "\n", step);
+            replay_set_break(step);
+        } else {
+            monitor_printf(mon, "Cannot stop on the preceding step.\n");
+        }
+    } else {
+        monitor_printf(mon, "You can stop at the specific step "
+                            "only in PLAY mode.\n");
     }
 }
 

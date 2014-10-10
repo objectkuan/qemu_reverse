@@ -24,6 +24,20 @@ ReplayInfo *qmp_replay_info(Error **errp)
     info->mode = replay_mode;
     info->submode = replay_get_play_submode();
     info->step = replay_get_current_step();
+    info->break_step = replay_get_break_step();
 
     return info;
+}
+
+void qmp_replay_break(uint64_t step, Error **errp)
+{
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        if (step >= replay_get_current_step()) {
+            replay_set_break(step);
+        } else {
+            error_setg(errp, "Cannot stop on the preceding step");
+        }
+    } else {
+        error_setg(errp, "replay_break can be used only in PLAY mode");
+    }
 }

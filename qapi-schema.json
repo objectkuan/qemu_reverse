@@ -3535,10 +3535,13 @@
 #
 # @step: current step of record or play
 #
+# @break-step: step where execution should stop
+#
 # Since: 2.2
 ##
 { 'type': 'ReplayInfo',
-  'data': {'mode': 'ReplayMode', 'submode': 'ReplaySubmode', 'step': 'uint64'} }
+  'data': { 'mode': 'ReplayMode', 'submode': 'ReplaySubmode',
+            'step': 'uint64', 'break-step': 'uint64' } }
 
 ##
 # @replay-info
@@ -3550,3 +3553,17 @@
 # Since: 2.2
 ##
 { 'command': 'replay-info', 'returns': 'ReplayInfo' }
+
+##
+# @replay-break
+#
+# Sets breakpoint at the specified step of replaying.
+# This command can be used in replay to stop execution when
+# the specified step is reached.
+# Current step of the execution can be queried with replay-info command.
+#
+# @step: step where breakpoint should be set
+#
+# Since: 2.2
+##
+{ 'command': 'replay-break', 'data': { 'step': 'uint64' } }

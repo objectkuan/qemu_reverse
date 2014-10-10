@@ -3768,12 +3768,40 @@ replay-info
 
 Shows information about replay process. This information includes
 current execution step (number of executed processor instructions),
-replay mode (record, play or none), and replay submode (reverse or
-normal execution in play mode).
+replay mode (record, play or none), replay submode (reverse or
+normal execution in play mode), and breakpoint step.
 
 Example:
 
 -> { "execute": "replay-info" }
-<- { "return": { "step": 651488674, "mode": "record", "submode": "unknown" } }
+<- { "return": { "step": 651488674,
+                 "mode": "record", "submode": "unknown"
+                 "break-step": 651490000 } }
+
+EQMP
+
+    {
+        .name       = "replay-break",
+        .args_type  = "step:l",
+        .mhandler.cmd_new = qmp_marshal_input_replay_break,
+    },
+
+SQMP
+replay-break
+------------
+
+Sets breakpoint at the specified step of replaying.
+This command can be used in replay to stop execution when
+the specified step is reached.
+Current step of the execution can be queried with replay-info command.
+
+Arguments:
+
+- "step": step where breakpoint should be set
+
+Example:
+
+-> { "execute": "replay-break", "arguments": { "step": 1024 } }
+<- { "return": {} }
 
 EQMP
