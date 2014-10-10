@@ -50,8 +50,8 @@ typedef struct {
     unsigned int pit_count;
     unsigned int samples;
     unsigned int play_pos;
-    int data_on;
-    int dummy_refresh_clock;
+    uint8_t data_on;
+    uint8_t dummy_refresh_clock;
 } PCSpkState;
 
 static const char *s_spk = "pcspk";
@@ -163,6 +163,18 @@ static const MemoryRegionOps pcspk_io_ops = {
     },
 };
 
+static const VMStateDescription vmstate_spk = {
+    .name = "pcspk",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT8(data_on, PCSpkState),
+        VMSTATE_UINT8(dummy_refresh_clock, PCSpkState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static void pcspk_initfn(Object *obj)
 {
     PCSpkState *s = PC_SPEAKER(obj);
@@ -174,6 +186,8 @@ static void pcspk_realizefn(DeviceState *dev, Error **errp)
 {
     ISADevice *isadev = ISA_DEVICE(dev);
     PCSpkState *s = PC_SPEAKER(dev);
+
+    vmstate_register(NULL, 0, &vmstate_spk, s);
 
     isa_register_ioport(isadev, &s->ioport, s->iobase);
 
