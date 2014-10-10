@@ -158,3 +158,45 @@ uint64_t replay_get_current_step(void)
     }
     return replay_state.current_step;
 }
+
+bool replay_exception(void)
+{
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        replay_save_instructions();
+        replay_put_event(EVENT_EXCEPTION);
+        return true;
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        if (skip_async_events(EVENT_EXCEPTION)) {
+            replay_has_unread_data = 0;
+            return true;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool replay_interrupt(void)
+{
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        replay_save_instructions();
+        replay_put_event(EVENT_INTERRUPT);
+        return true;
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        if (skip_async_events(EVENT_INTERRUPT)) {
+            replay_has_unread_data = 0;
+            return true;
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool replay_has_interrupt(void)
+{
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        return skip_async_events(EVENT_INTERRUPT);
+    }
+    return false;
+}

@@ -23,6 +23,7 @@
 #include "qemu/atomic.h"
 #include "sysemu/qtest.h"
 #include "qemu/main-loop.h"
+#include "replay/replay.h"
 
 void cpu_loop_exit(CPUState *cpu)
 {
@@ -314,8 +315,14 @@ int cpu_exec(CPUArchState *env)
                     ret = cpu->exception_index;
                     break;
 #else
-                    cc->do_interrupt(cpu);
-                    cpu->exception_index = -1;
+                    if (replay_exception()) {
+                        cc->do_interrupt(cpu);
+                        cpu->exception_index = -1;
+                    } else if (!replay_has_interrupt()) {
+                        /* give a chance to iothread in replay mode */
+                        ret = EXCP_REPLAY;
+                        break;
+                    }
 #endif
                 }
             }
@@ -323,7 +330,8 @@ int cpu_exec(CPUArchState *env)
             next_tb = 0; /* force lookup of first TB */
             for(;;) {
                 interrupt_request = cpu->interrupt_request;
-                if (unlikely(interrupt_request)) {
+                if (unlikely((interrupt_request & CPU_INTERRUPT_DEBUG)
+                             || (interrupt_request && replay_interrupt()))) {
                     if (unlikely(cpu->singlestep_enabled & SSTEP_NOIRQ)) {
                         /* Mask out external interrupts for this step. */
                         interrupt_request &= ~CPU_INTERRUPT_SSTEP_MASK;
