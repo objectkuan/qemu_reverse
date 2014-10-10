@@ -21,8 +21,13 @@
 #define EVENT_EXCEPTION             23
 /* for async events */
 #define EVENT_ASYNC                 24
+#define EVENT_ASYNC_OPT             25
 /* for instruction event */
 #define EVENT_INSTRUCTION           32
+
+/* Asynchronous events IDs */
+
+#define REPLAY_ASYNC_COUNT             0
 
 typedef struct ReplayState {
     /*! Nonzero, when next instruction is repeated one and was already
@@ -75,11 +80,23 @@ void skip_async_events_until(unsigned int kind);
 
 /* Asynchronous events queue */
 
+/*! Initializes events' processing internals */
+void replay_init_events(void);
+/*! Clears internal data structures for events handling */
+void replay_finish_events(void);
+/*! Enables storing events in the queue */
+void replay_enable_events(void);
+/*! Flushes events queue */
+void replay_flush_events(void);
+/*! Clears events list before loading new VM state */
+void replay_clear_events(void);
 /*! Returns true if there are any unsaved events in the queue */
 bool replay_has_events(void);
 /*! Saves events from queue into the file */
 void replay_save_events(int opt);
 /*! Read events from the file into the input queue */
 void replay_read_events(int opt);
+/*! Adds specified async event to the queue */
+void replay_add_event(int event_id, void *opaque);
 
 #endif

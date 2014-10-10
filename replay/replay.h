@@ -48,5 +48,9 @@ bool replay_interrupt(void);
     Returns true, when interrupt request is pending */
 bool replay_has_interrupt(void);
 
+/* Asynchronous events queue */
+
+/*! Disables storing events in the queue */
+void replay_disable_events(void);
 
 #endif
