@@ -537,7 +537,7 @@ uint32_t helper_fnstcw(CPUX86State *env)
     return env->fpuc;
 }
 
-static void update_fp_status(CPUX86State *env)
+void update_fp_status(CPUX86State *env)
 {
     int rnd_type;
 
@@ -1006,6 +1006,7 @@ void helper_fstenv(CPUX86State *env, target_ulong ptr, int data32)
         cpu_stw_data(env, ptr + 10, 0);
         cpu_stw_data(env, ptr + 12, 0);
     }
+    update_fp_status(env);
 }
 
 void helper_fldenv(CPUX86State *env, target_ulong ptr, int data32)
@@ -1055,6 +1056,7 @@ void helper_fsave(CPUX86State *env, target_ulong ptr, int data32)
     env->fptags[5] = 1;
     env->fptags[6] = 1;
     env->fptags[7] = 1;
+    update_fp_status(env);
 }
 
 void helper_frstor(CPUX86State *env, target_ulong ptr, int data32)
@@ -1158,6 +1160,7 @@ void helper_fxrstor(CPUX86State *env, target_ulong ptr, int data64)
     }
 
     env->fpuc = cpu_lduw_data(env, ptr);
+    update_fp_status(env);
     fpus = cpu_lduw_data(env, ptr + 2);
     fptag = cpu_lduw_data(env, ptr + 4);
     env->fpstt = (fpus >> 11) & 7;

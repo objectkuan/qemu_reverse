@@ -2573,6 +2573,7 @@ static void x86_cpu_reset(CPUState *s)
         env->fptags[i] = 1;
     }
     env->fpuc = 0x37f;
+    update_fp_status(env);
 
     env->mxcsr = 0x1f80;
     env->xstate_bv = XSTATE_FP | XSTATE_SSE;
