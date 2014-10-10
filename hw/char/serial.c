@@ -272,6 +272,64 @@ static gboolean serial_xmit(GIOChannel *chan, GIOCondition cond, void *opaque)
 }
 
 
+/* Setter for FCR.
+   is_load flag means, that value is set while loading VM state
+   and interrupt should not be invoked */
+static void serial_write_fcr(void *opaque, uint32_t val, int is_load)
+{
+    SerialState *s = opaque;
+    val = val & 0xFF;
+
+    if (s->fcr == val) {
+        return;
+    }
+
+    /* Did the enable/disable flag change? If so, make sure FIFOs get flushed */
+    if ((val ^ s->fcr) & UART_FCR_FE) {
+        val |= UART_FCR_XFR | UART_FCR_RFR;
+    }
+
+    /* FIFO clear */
+
+    if (val & UART_FCR_RFR) {
+        timer_del(s->fifo_timeout_timer);
+        s->timeout_ipending = 0;
+        fifo8_reset(&s->recv_fifo);
+    }
+
+    if (val & UART_FCR_XFR) {
+        fifo8_reset(&s->xmit_fifo);
+    }
+
+    if (val & UART_FCR_FE) {
+        s->iir |= UART_IIR_FE;
+        /* Set recv_fifo trigger Level */
+        switch (val & 0xC0) {
+        case UART_FCR_ITL_1:
+            s->recv_fifo_itl = 1;
+            break;
+        case UART_FCR_ITL_2:
+            s->recv_fifo_itl = 4;
+            break;
+        case UART_FCR_ITL_3:
+            s->recv_fifo_itl = 8;
+            break;
+        case UART_FCR_ITL_4:
+            s->recv_fifo_itl = 14;
+            break;
+        }
+    } else {
+        s->iir &= ~UART_IIR_FE;
+    }
+
+    /* Set fcr - or at least the bits in it that are supposed to "stick" */
+    s->fcr = val & 0xC9;
+
+    if (!is_load) {
+        serial_update_irq(s);
+    }
+}
+
 static void serial_ioport_write(void *opaque, hwaddr addr, uint64_t val,
                                 unsigned size)
 {
@@ -327,50 +385,7 @@ static void serial_ioport_write(void *opaque, hwaddr addr, uint64_t val,
         }
         break;
     case 2:
-        val = val & 0xFF;
-
-        if (s->fcr == val)
-            break;
-
-        /* Did the enable/disable flag change? If so, make sure FIFOs get flushed */
-        if ((val ^ s->fcr) & UART_FCR_FE)
-            val |= UART_FCR_XFR | UART_FCR_RFR;
-
-        /* FIFO clear */
-
-        if (val & UART_FCR_RFR) {
-            timer_del(s->fifo_timeout_timer);
-            s->timeout_ipending=0;
-            fifo8_reset(&s->recv_fifo);
-        }
-
-        if (val & UART_FCR_XFR) {
-            fifo8_reset(&s->xmit_fifo);
-        }
-
-        if (val & UART_FCR_FE) {
-            s->iir |= UART_IIR_FE;
-            /* Set recv_fifo trigger Level */
-            switch (val & 0xC0) {
-            case UART_FCR_ITL_1:
-                s->recv_fifo_itl = 1;
-                break;
-            case UART_FCR_ITL_2:
-                s->recv_fifo_itl = 4;
-                break;
-            case UART_FCR_ITL_3:
-                s->recv_fifo_itl = 8;
-                break;
-            case UART_FCR_ITL_4:
-                s->recv_fifo_itl = 14;
-                break;
-            }
-        } else
-            s->iir &= ~UART_IIR_FE;
-
-        /* Set fcr - or at least the bits in it that are supposed to "stick" */
-        s->fcr = val & 0xC9;
-        serial_update_irq(s);
+        serial_write_fcr(s, val, 0);
         break;
     case 3:
         {
@@ -590,6 +605,19 @@ static void serial_pre_save(void *opaque)
     s->fcr_vmstate = s->fcr;
 }
 
+static int serial_pre_load(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    s->tsr_retry = 0;
+    fifo8_reset(&s->recv_fifo);
+    fifo8_reset(&s->xmit_fifo);
+    timer_del(s->fifo_timeout_timer);
+    s->timeout_ipending = 0;
+    s->poll_msl = -1;
+    timer_del(s->modem_status_poll);
+    return 0;
+}
+
 static int serial_post_load(void *opaque, int version_id)
 {
     SerialState *s = opaque;
@@ -597,17 +625,135 @@ static int serial_post_load(void *opaque, int version_id)
     if (version_id < 3) {
         s->fcr_vmstate = 0;
     }
+    s->last_break_enable = (s->lcr >> 6) & 1;
     /* Initialize fcr via setter to perform essential side-effects */
-    serial_ioport_write(s, 0x02, s->fcr_vmstate, 1);
+    serial_write_fcr(s, s->fcr_vmstate, 1);
     serial_update_parameters(s);
     return 0;
 }
 
+static bool serial_thr_ipending_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return (s->iir & UART_IIR_ID) != UART_IIR_THRI;
+}
+
+const VMStateDescription vmstate_serial_thr_ipending = {
+    .name = "serial/thr_ipending",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT32(thr_ipending, SerialState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_tsr_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return s->tsr_retry != 0;
+}
+
+const VMStateDescription vmstate_serial_tsr = {
+    .name = "serial/tsr",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT32(tsr_retry, SerialState),
+        VMSTATE_UINT8(thr, SerialState),
+        VMSTATE_UINT8(tsr, SerialState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_recv_fifo_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return !fifo8_is_empty(&s->recv_fifo);
+
+}
+
+const VMStateDescription vmstate_serial_recv_fifo = {
+    .name = "serial/recv_fifo",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_STRUCT(recv_fifo, SerialState, 1, vmstate_fifo8, Fifo8),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_xmit_fifo_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return !fifo8_is_empty(&s->xmit_fifo);
+}
+
+const VMStateDescription vmstate_serial_xmit_fifo = {
+    .name = "serial/xmit_fifo",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_STRUCT(xmit_fifo, SerialState, 1, vmstate_fifo8, Fifo8),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_fifo_timeout_timer_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return timer_pending(s->fifo_timeout_timer);
+}
+
+const VMStateDescription vmstate_serial_fifo_timeout_timer = {
+    .name = "serial/fifo_timeout_timer",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_TIMER(fifo_timeout_timer, SerialState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_timeout_ipending_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return s->timeout_ipending != 0;
+}
+
+const VMStateDescription vmstate_serial_timeout_ipending = {
+    .name = "serial/timeout_ipending",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT32(timeout_ipending, SerialState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool serial_poll_needed(void *opaque)
+{
+    SerialState *s = (SerialState *)opaque;
+    return s->poll_msl >= 0;
+}
+
+const VMStateDescription vmstate_serial_poll = {
+    .name = "serial/poll",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT32(poll_msl, SerialState),
+        VMSTATE_TIMER(modem_status_poll, SerialState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 const VMStateDescription vmstate_serial = {
     .name = "serial",
-    .version_id = 3,
+    .version_id = 4,
     .minimum_version_id = 2,
     .pre_save = serial_pre_save,
+    .pre_load = serial_pre_load,
     .post_load = serial_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_UINT16_V(divider, SerialState, 2),
@@ -621,6 +767,32 @@ const VMStateDescription vmstate_serial = {
         VMSTATE_UINT8(scr, SerialState),
         VMSTATE_UINT8_V(fcr_vmstate, SerialState, 3),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (VMStateSubsection[]) {
+        {
+            .vmsd = &vmstate_serial_thr_ipending,
+            .needed = &serial_thr_ipending_needed,
+        } , {
+            .vmsd = &vmstate_serial_tsr,
+            .needed = &serial_tsr_needed,
+        } , {
+            .vmsd = &vmstate_serial_recv_fifo,
+            .needed = &serial_recv_fifo_needed,
+        } , {
+            .vmsd = &vmstate_serial_xmit_fifo,
+            .needed = &serial_xmit_fifo_needed,
+        } , {
+            .vmsd = &vmstate_serial_fifo_timeout_timer,
+            .needed = &serial_fifo_timeout_timer_needed,
+        } , {
+            .vmsd = &vmstate_serial_timeout_ipending,
+            .needed = &serial_timeout_ipending_needed,
+        } , {
+            .vmsd = &vmstate_serial_poll,
+            .needed = &serial_poll_needed,
+        } , {
+            /* empty */
+        }
     }
 };
 
