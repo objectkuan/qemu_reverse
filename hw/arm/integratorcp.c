@@ -42,6 +42,27 @@ typedef struct IntegratorCMState {
     uint32_t fiq_enabled;
 } IntegratorCMState;
 
+static const VMStateDescription vmstate_integratorcm = {
+    .name = "integratorcm",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT32(cm_osc, IntegratorCMState),
+        VMSTATE_UINT32(cm_ctrl, IntegratorCMState),
+        VMSTATE_UINT32(cm_lock, IntegratorCMState),
+        VMSTATE_UINT32(cm_auxosc, IntegratorCMState),
+        VMSTATE_UINT32(cm_sdram, IntegratorCMState),
+        VMSTATE_UINT32(cm_init, IntegratorCMState),
+        VMSTATE_UINT32(cm_flags, IntegratorCMState),
+        VMSTATE_UINT32(cm_nvflags, IntegratorCMState),
+        VMSTATE_UINT32(int_level, IntegratorCMState),
+        VMSTATE_UINT32(irq_enabled, IntegratorCMState),
+        VMSTATE_UINT32(fiq_enabled, IntegratorCMState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static uint8_t integrator_spd[128] = {
    128, 8, 4, 11, 9, 1, 64, 0,  2, 0xa0, 0xa0, 0, 0, 8, 0, 1,
    0xe, 4, 0x1c, 1, 2, 0x20, 0xc0, 0, 0, 0, 0, 0x30, 0x28, 0x30, 0x28, 0x40
@@ -272,7 +293,7 @@ static int integratorcm_init(SysBusDevice *dev)
     sysbus_init_mmio(dev, &s->iomem);
 
     integratorcm_do_remap(s);
-    /* ??? Save/restore.  */
+    vmstate_register(NULL, -1, &vmstate_integratorcm, s);
     return 0;
 }
 
@@ -295,6 +316,20 @@ typedef struct icp_pic_state {
     qemu_irq parent_irq;
     qemu_irq parent_fiq;
 } icp_pic_state;
+
+
+static const VMStateDescription vmstate_icp_pic = {
+    .name = "icp_pic_state",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_UINT32(level, icp_pic_state),
+        VMSTATE_UINT32(irq_enabled, icp_pic_state),
+        VMSTATE_UINT32(fiq_enabled, icp_pic_state),
+        VMSTATE_END_OF_LIST()
+    }
+};
 
 static void icp_pic_update(icp_pic_state *s)
 {
@@ -399,6 +434,7 @@ static int icp_pic_init(SysBusDevice *sbd)
     memory_region_init_io(&s->iomem, OBJECT(s), &icp_pic_ops, s,
                           "icp-pic", 0x00800000);
     sysbus_init_mmio(sbd, &s->iomem);
+    vmstate_register(NULL, -1, &vmstate_icp_pic, s);
     return 0;
 }
 
