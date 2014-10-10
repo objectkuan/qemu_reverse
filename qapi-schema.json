@@ -3567,3 +3567,16 @@
 # Since: 2.2
 ##
 { 'command': 'replay-break', 'data': { 'step': 'uint64' } }
+
+##
+# @replay-seek
+#
+# Seeks the replay log to the specified step.
+# Loads nearest snapshot and replays the execution until
+# the destination step is reached,
+#
+# @step: destination replay step
+#
+# Since: 2.2
+##
+{ 'command': 'replay-seek', 'data': { 'step': 'uint64' } }

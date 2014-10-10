@@ -3805,3 +3805,28 @@ Example:
 <- { "return": {} }
 
 EQMP
+
+    {
+        .name       = "replay-seek",
+        .args_type  = "step:l",
+        .mhandler.cmd_new = qmp_marshal_input_replay_seek,
+    },
+
+SQMP
+replay-seek
+-----------
+
+Seeks the replay log to the specified step.
+Loads nearest snapshot and replays the execution until
+the destination step is reached,
+
+Arguments:
+
+- "step": destination replay step
+
+Example:
+
+-> { "execute": "replay-seek", "arguments": { "step": 1024 } }
+<- { "return": {} }
+
+EQMP

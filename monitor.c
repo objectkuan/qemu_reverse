@@ -1213,6 +1213,24 @@ static void do_replay_break(Monitor *mon, const QDict *qdict)
     }
 }
 
+static void do_replay_seek(Monitor *mon, const QDict *qdict)
+{
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        uint64_t step = qdict_get_int(qdict, "step");
+        if (replay_seek_step(step)) {
+            monitor_printf(mon, "Seeking for step: %" PRId64 "\n", step);
+            if (!runstate_is_running()) {
+                vm_start();
+            }
+        } else {
+            monitor_printf(mon, "Cannot seek to the specified step.\n");
+        }
+    } else {
+        monitor_printf(mon, "You can go to the specific step "
+                            "only in PLAY mode.\n");
+    }
+}
+
 static void monitor_printc(Monitor *mon, int c)
 {
     monitor_printf(mon, "'");

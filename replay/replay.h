@@ -57,6 +57,10 @@ void replay_finish(void);
 void replay_set_break(uint64_t step);
 /*! Retrieves current breakpoint step. */
 uint64_t replay_get_break_step(void);
+/*! Seeks to the specified step.
+    Loads VM state, if possible, and sets break to specified step.
+    Returns nonzero, when seeking was successful. */
+int replay_seek_step(uint64_t step);
 
 /* Processing the instructions */
 

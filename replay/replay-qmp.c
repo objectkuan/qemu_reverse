@@ -41,3 +41,18 @@ void qmp_replay_break(uint64_t step, Error **errp)
         error_setg(errp, "replay_break can be used only in PLAY mode");
     }
 }
+
+void qmp_replay_seek(uint64_t step, Error **errp)
+{
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        if (replay_seek_step(step)) {
+            if (!runstate_is_running()) {
+                vm_start();
+            }
+        } else {
+            error_setg(errp, "Cannot seek to the specified step");
+        }
+    } else {
+        error_setg(errp, "replay_seek can be used only in PLAY mode");
+    }
+}

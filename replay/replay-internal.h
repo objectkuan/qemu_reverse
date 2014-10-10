@@ -135,6 +135,9 @@ void skip_async_events_until(unsigned int kind);
     If the parameter is -1, the clock value is read to the cache anyway. */
 void replay_read_next_clock(unsigned int kind);
 
+/*! Finds saved state info which is nearest before the specified step. */
+SavedStateInfo *find_nearest_state(uint64_t step);
+
 /* Asynchronous events queue */
 
 /*! Initializes events' processing internals */

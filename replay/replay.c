@@ -670,3 +670,46 @@ uint64_t replay_get_break_step(void)
 {
     return replay_break_step;
 }
+
+SavedStateInfo *find_nearest_state(uint64_t step)
+{
+    SavedStateInfo *first = saved_states;
+    SavedStateInfo *last = saved_states + saved_states_count;
+    while (first < last - 1) {
+        SavedStateInfo *next = first + (last - first) / 2;
+        if (next->step > step) {
+            last = next;
+        } else {
+            first = next;
+        }
+    }
+
+    return first;
+}
+
+int replay_seek_step(uint64_t step)
+{
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        return 0;
+    }
+
+    /* load VM state, if possible */
+    if (saved_states_count > 0) {
+        /* find VM state to load */
+        SavedStateInfo *first = find_nearest_state(step);
+
+        if (first->step <= step
+            && (replay_get_current_step() > step
+                || replay_get_current_step() < first->step)) {
+            replay_loadvm(first - saved_states);
+        }
+    }
+
+    /* setup the breakpoint */
+    if (step >= replay_get_current_step()) {
+        replay_set_break(step);
+        return 1;
+    }
+
+    return 0;
+}
