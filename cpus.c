@@ -841,12 +841,21 @@ static void qemu_wait_io_event_common(CPUState *cpu)
 static void qemu_tcg_wait_io_event(void)
 {
     CPUState *cpu;
+    GMainContext *context = g_main_context_default();
 
-    while (all_cpu_threads_idle()) {
-       /* Start accounting real time to the virtual clock if the CPUs
-          are idle.  */
+    if (replay_mode == REPLAY_MODE_PLAY
+        && all_cpu_threads_idle() && first_cpu->halted) {
+        /* wakeup iothread when there is no code to execute in replay mode */
         qemu_clock_warp(QEMU_CLOCK_VIRTUAL);
+        g_main_context_wakeup(context);
         qemu_cond_wait(tcg_halt_cond, &qemu_global_mutex);
+    } else {
+        while (all_cpu_threads_idle()) {
+            /* Start accounting real time to the virtual clock if the CPUs
+              are idle.  */
+            qemu_clock_warp(QEMU_CLOCK_VIRTUAL);
+            qemu_cond_wait(tcg_halt_cond, &qemu_global_mutex);
+        }
     }
 
     while (iothread_requesting_mutex) {

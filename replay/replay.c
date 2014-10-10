@@ -320,6 +320,8 @@ void replay_configure(QemuOpts *opts, int mode)
         replay_image_suffix = g_strdup("replay_qcow");
     }
 
+    replay_icount = (int)qemu_opt_get_number(opts, "icount", 0);
+
     replay_enable(fname, mode);
 }
 
