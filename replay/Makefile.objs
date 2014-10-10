@@ -2,3 +2,4 @@ obj-y += replay.o
 obj-y += replay-internal.o
 obj-y += replay-events.o
 obj-y += replay-time.o
+obj-y += replay-icount.o

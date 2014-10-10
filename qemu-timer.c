@@ -579,7 +579,9 @@ int64_t qemu_clock_get_ns(QEMUClockType type)
         return get_clock();
     default:
     case QEMU_CLOCK_VIRTUAL:
-        if (use_icount) {
+        if (replay_icount) {
+            return replay_get_icount();
+        } else if (use_icount) {
             return cpu_get_icount();
         } else {
             return cpu_get_clock();

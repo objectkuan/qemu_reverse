@@ -172,6 +172,9 @@ int64_t cpu_get_ticks(void)
     if (use_icount) {
         return cpu_get_icount();
     }
+    if (replay_icount) {
+        return replay_get_icount();
+    }
 
     ticks = timers_state.cpu_ticks_offset;
     if (timers_state.cpu_ticks_enabled) {
@@ -231,8 +234,10 @@ void cpu_enable_ticks(void)
     /* Here, the really thing protected by seqlock is cpu_clock_offset. */
     seqlock_write_lock(&timers_state.vm_clock_seqlock);
     if (!timers_state.cpu_ticks_enabled) {
-        timers_state.cpu_ticks_offset -= cpu_get_real_ticks();
-        timers_state.cpu_clock_offset -= get_clock();
+        if (!replay_icount) {
+            timers_state.cpu_ticks_offset -= cpu_get_real_ticks();
+            timers_state.cpu_clock_offset -= get_clock();
+        }
         timers_state.cpu_ticks_enabled = 1;
     }
     seqlock_write_unlock(&timers_state.vm_clock_seqlock);
@@ -247,8 +252,10 @@ void cpu_disable_ticks(void)
     /* Here, the really thing protected by seqlock is cpu_clock_offset. */
     seqlock_write_lock(&timers_state.vm_clock_seqlock);
     if (timers_state.cpu_ticks_enabled) {
-        timers_state.cpu_ticks_offset += cpu_get_real_ticks();
-        timers_state.cpu_clock_offset = cpu_get_clock_locked();
+        if (!replay_icount) {
+            timers_state.cpu_ticks_offset += cpu_get_real_ticks();
+            timers_state.cpu_clock_offset = cpu_get_clock_locked();
+        }
         timers_state.cpu_ticks_enabled = 0;
     }
     seqlock_write_unlock(&timers_state.vm_clock_seqlock);
@@ -379,7 +386,12 @@ void qemu_clock_warp(QEMUClockType type)
      * applicable to other clocks.  But a clock argument removes the
      * need for if statements all over the place.
      */
-    if (type != QEMU_CLOCK_VIRTUAL || !use_icount) {
+    if (type != QEMU_CLOCK_VIRTUAL || (!use_icount || !replay_icount)) {
+        return;
+    }
+
+    if (replay_icount) {
+        replay_clock_warp();
         return;
     }
 

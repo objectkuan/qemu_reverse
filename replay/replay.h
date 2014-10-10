@@ -29,6 +29,8 @@
 
 extern ReplayMode replay_mode;
 extern char *replay_image_suffix;
+/*! Shift value for icount based on replay or zero, if it is disabled. */
+extern int replay_icount;
 
 /*! Returns replay play submode */
 ReplaySubmode replay_get_play_submode(void);
@@ -88,5 +90,13 @@ int replay_checkpoint(unsigned int checkpoint);
 
 /*! Disables storing events in the queue */
 void replay_disable_events(void);
+
+/* icount-based virtual clock */
+
+/* Initializes icount-based virtual clock */
+void replay_init_icount(void);
+/* Returns the virtual CPU time, based on the instruction counter.  */
+int64_t replay_get_icount(void);
+void replay_clock_warp(void);
 
 #endif

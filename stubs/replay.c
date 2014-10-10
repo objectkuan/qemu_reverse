@@ -2,6 +2,7 @@
 #include "sysemu/sysemu.h"
 
 ReplayMode replay_mode;
+int replay_icount;
 
 ReplaySubmode replay_get_play_submode(void)
 {
@@ -23,6 +24,11 @@ int replay_checkpoint(unsigned int checkpoint)
 }
 
 int runstate_is_running(void)
+{
+    return 0;
+}
+
+int64_t replay_get_icount(void)
 {
     return 0;
 }
