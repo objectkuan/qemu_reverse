@@ -55,7 +55,7 @@ static void test_submit_aio(void)
 {
     WorkerTestData data = { .n = 0, .ret = -EINPROGRESS };
     data.aiocb = thread_pool_submit_aio(pool, worker_cb, &data,
-                                        done_cb, &data);
+                                        done_cb, &data, false, 0);
 
     /* The callbacks are not called until after the first wait.  */
     active = 1;
@@ -119,7 +119,8 @@ static void test_submit_many(void)
     for (i = 0; i < 100; i++) {
         data[i].n = 0;
         data[i].ret = -EINPROGRESS;
-        thread_pool_submit_aio(pool, worker_cb, &data[i], done_cb, &data[i]);
+        thread_pool_submit_aio(pool, worker_cb, &data[i], done_cb, &data[i],
+                               false, 0);
     }
 
     active = 100;
@@ -148,7 +149,7 @@ static void test_cancel(void)
         data[i].n = 0;
         data[i].ret = -EINPROGRESS;
         data[i].aiocb = thread_pool_submit_aio(pool, long_cb, &data[i],
-                                               done_cb, &data[i]);
+                                               done_cb, &data[i], false, 0);
     }
 
     /* Starting the threads may be left to a bottom half.  Let it

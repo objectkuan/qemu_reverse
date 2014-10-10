@@ -11,6 +11,7 @@
 
 #include "replay.h"
 #include "replay-internal.h"
+#include "block/thread-pool.h"
 
 typedef struct Event {
     int event_kind;
@@ -37,6 +38,9 @@ static void replay_run_event(Event *event)
     switch (event->event_kind) {
     case REPLAY_ASYNC_EVENT_BH:
         aio_bh_call(event->opaque);
+        break;
+    case REPLAY_ASYNC_EVENT_THREAD:
+        thread_pool_work((ThreadPool *)event->opaque, event->opaque2);
         break;
     default:
         fprintf(stderr, "Replay: invalid async event ID (%d) in the queue\n",
@@ -126,6 +130,11 @@ void replay_add_bh_event(void *bh, uint64_t id)
     replay_add_event_internal(REPLAY_ASYNC_EVENT_BH, bh, NULL, id);
 }
 
+void replay_add_thread_event(void *opaque, void *opaque2, uint64_t id)
+{
+    replay_add_event_internal(REPLAY_ASYNC_EVENT_THREAD, opaque, opaque2, id);
+}
+
 void replay_save_events(int opt)
 {
     qemu_mutex_lock(&lock);
@@ -144,6 +153,7 @@ void replay_save_events(int opt)
             /* save event-specific data */
             switch (event->event_kind) {
             case REPLAY_ASYNC_EVENT_BH:
+            case REPLAY_ASYNC_EVENT_THREAD:
                 replay_put_qword(event->id);
                 break;
             }
@@ -177,6 +187,7 @@ void replay_read_events(int opt)
         /* Execute some events without searching them in the queue */
         switch (read_event_kind) {
         case REPLAY_ASYNC_EVENT_BH:
+        case REPLAY_ASYNC_EVENT_THREAD:
             if (read_id == -1) {
                 read_id = replay_get_qword();
             }

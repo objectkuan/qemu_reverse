@@ -1049,7 +1049,9 @@ static BlockDriverAIOCB *paio_submit(BlockDriverState *bs, int fd,
 
     trace_paio_submit(acb, opaque, sector_num, nb_sectors, type);
     pool = aio_get_thread_pool(bdrv_get_aio_context(bs));
-    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque);
+    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque,
+                                  qiov ? qiov->replay : false,
+                                  qiov ? qiov->replay_step : 0);
 }
 
 static BlockDriverAIOCB *raw_aio_submit(BlockDriverState *bs,
@@ -1877,7 +1879,7 @@ static BlockDriverAIOCB *hdev_aio_ioctl(BlockDriverState *bs,
     acb->aio_ioctl_buf = buf;
     acb->aio_ioctl_cmd = req;
     pool = aio_get_thread_pool(bdrv_get_aio_context(bs));
-    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque);
+    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque, false, 0);
 }
 
 #elif defined(__FreeBSD__) || defined(__FreeBSD_kernel__)

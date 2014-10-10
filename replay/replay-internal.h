@@ -40,7 +40,8 @@
 /* Asynchronous events IDs */
 
 #define REPLAY_ASYNC_EVENT_BH          0
-#define REPLAY_ASYNC_COUNT             1
+#define REPLAY_ASYNC_EVENT_THREAD      1
+#define REPLAY_ASYNC_COUNT             2
 
 typedef struct ReplayState {
     /*! Cached clock values. */

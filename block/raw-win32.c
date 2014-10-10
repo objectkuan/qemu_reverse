@@ -158,7 +158,9 @@ static BlockDriverAIOCB *paio_submit(BlockDriverState *bs, HANDLE hfile,
 
     trace_paio_submit(acb, opaque, sector_num, nb_sectors, type);
     pool = aio_get_thread_pool(bdrv_get_aio_context(bs));
-    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque);
+    return thread_pool_submit_aio(pool, aio_worker, acb, cb, opaque,
+                                  qiov ? qiov->replay : false,
+                                  qiov ? qiov->replay_step : 0);
 }
 
 int qemu_ftruncate64(int fd, int64_t length)

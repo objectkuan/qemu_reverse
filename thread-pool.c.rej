@@ -1,0 +1,28 @@
+--- thread-pool.c
++++ thread-pool.c
+@@ -130,21 +155,12 @@
+         req = QTAILQ_FIRST(&pool->request_list);
+         QTAILQ_REMOVE(&pool->request_list, req, reqs);
+         req->state = THREAD_ACTIVE;
+-        qemu_mutex_unlock(&pool->lock);
+-
+-        ret = req->func(req->arg);
+ 
+-        req->ret = ret;
+-        /* Write ret before state.  */
+-        smp_wmb();
+-        req->state = THREAD_DONE;
+-
+-        qemu_mutex_lock(&pool->lock);
+-        if (pool->pending_cancellations) {
+-            qemu_cond_broadcast(&pool->check_cancel);
++        if (replay_mode != REPLAY_MODE_NONE && req->common.replay) {
++            replay_add_thread_event(pool, req, req->common.replay_step);
++        } else {
++            thread_pool_work(pool, req);
+         }
+-
+-        qemu_bh_schedule(pool->completion_bh);
+     }
+ 
+     pool->cur_threads--;

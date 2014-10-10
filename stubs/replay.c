@@ -41,3 +41,7 @@ uint64_t replay_get_current_step(void)
 {
     return 0;
 }
+
+void replay_add_thread_event(void *opaque, void *opaque2, uint64_t id)
+{
+}

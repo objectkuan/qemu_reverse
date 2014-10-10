@@ -33,9 +33,11 @@ void thread_pool_free(ThreadPool *pool);
 
 BlockDriverAIOCB *thread_pool_submit_aio(ThreadPool *pool,
         ThreadPoolFunc *func, void *arg,
-        BlockDriverCompletionFunc *cb, void *opaque);
+        BlockDriverCompletionFunc *cb, void *opaque,
+        bool replay, uint64_t replay_step);
 int coroutine_fn thread_pool_submit_co(ThreadPool *pool,
         ThreadPoolFunc *func, void *arg);
 void thread_pool_submit(ThreadPool *pool, ThreadPoolFunc *func, void *arg);
+void thread_pool_work(ThreadPool *pool, void *r);
 
 #endif
