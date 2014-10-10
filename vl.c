@@ -575,6 +575,9 @@ static QemuOptsList qemu_replay_opts = {
         },{
             .name = "icount",
             .type = QEMU_OPT_NUMBER,
+        },{
+            .name = "period",
+            .type = QEMU_OPT_NUMBER,
         },
         { /* end of list */ }
     },

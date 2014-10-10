@@ -12,6 +12,8 @@
 #include "qemu-common.h"
 #include "replay.h"
 #include "replay-internal.h"
+#include "migration/vmstate.h"
+#include "monitor/monitor.h"
 
 /* Current version of the replay mechanism.
    Increase it when file format changes. */
@@ -30,10 +32,176 @@ char *replay_image_suffix;
 
 ReplayState replay_state;
 
+/*
+    Auto-saving for VM states data
+*/
+
+/* Minimum capacity of saved states information array */
+#define SAVED_STATES_MIN_CAPACITY   128
+/* Format of the name for the saved state */
+#define SAVED_STATE_NAME_FORMAT     "replay_%" PRId64
+
+/* Timer for auto-save VM states */
+static QEMUTimer *save_timer;
+/* Save state period in seconds */
+static uint64_t save_state_period;
+/* List of the saved states information */
+SavedStateInfo *saved_states;
+/* Number of saved states */
+static size_t saved_states_count;
+/* Capacity of the buffer for saved states */
+static size_t saved_states_capacity;
+/* Number of last loaded/saved state */
+static uint64_t current_saved_state;
+
+/*
+   Replay functions
+ */
 
 ReplaySubmode replay_get_play_submode(void)
 {
     return play_submode;
+}
+
+static void replay_pre_save(void *opaque)
+{
+    ReplayState *state = opaque;
+    state->file_offset = ftello64(replay_file);
+}
+
+static int replay_post_load(void *opaque, int version_id)
+{
+    first_cpu->instructions_count = 0;
+
+    ReplayState *state = opaque;
+    fseeko64(replay_file, state->file_offset, SEEK_SET);
+    replay_has_unread_data = 0;
+
+    return 0;
+}
+
+static const VMStateDescription vmstate_replay = {
+    .name = "replay",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .pre_save = replay_pre_save,
+    .post_load = replay_post_load,
+    .fields      = (VMStateField[]) {
+        VMSTATE_INT64_ARRAY(cached_clock, ReplayState, REPLAY_CLOCK_COUNT),
+        VMSTATE_INT32(skipping_instruction, ReplayState),
+        VMSTATE_UINT64(current_step, ReplayState),
+        VMSTATE_UINT64(file_offset, ReplayState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static void replay_savevm(void *opaque)
+{
+    char name[128];
+    uint64_t offset;
+
+    offset = ftello64(replay_file);
+
+    replay_save_instructions();
+
+    replay_put_event(EVENT_SAVE_VM_BEGIN);
+
+    vm_stop(RUN_STATE_SAVE_VM);
+
+    /* save VM state */
+    sprintf(name, SAVED_STATE_NAME_FORMAT, current_saved_state);
+    if (save_vmstate(default_mon, name) > 0) {
+        /* if period is 0, save only once */
+        if (save_state_period != 0) {
+            timer_mod(save_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME)
+                                  + save_state_period);
+        }
+
+        /* add more memory to buffer */
+        if (saved_states_count >= saved_states_capacity) {
+            saved_states_capacity += SAVED_STATES_MIN_CAPACITY;
+            saved_states = g_realloc(saved_states, saved_states_capacity
+                                                   * sizeof(SavedStateInfo));
+            if (!saved_states) {
+                saved_states_count = 0;
+                fprintf(stderr,
+                        "Replay: Saved states memory reallocation failed.\n");
+                exit(1);
+            }
+        }
+        /* save state ID into the buffer */
+        saved_states[saved_states_count].file_offset = offset;
+        saved_states[saved_states_count].step = replay_get_current_step();
+        ++saved_states_count;
+        ++current_saved_state;
+    } else {
+        fprintf(stderr, "Cannot save simulator states for replay.\n");
+    }
+
+    replay_put_event(EVENT_SAVE_VM_END);
+
+    tb_flush_all();
+
+    vm_start();
+}
+
+/*! Checks SAVEVM event while reading event log. */
+static void check_savevm(void)
+{
+    replay_fetch_data_kind();
+    if (replay_data_kind != EVENT_SAVE_VM_BEGIN
+        && replay_data_kind != EVENT_SAVE_VM_END) {
+        fprintf(stderr, "Replay: read wrong data kind %d within savevm\n",
+                replay_data_kind);
+        exit(1);
+    }
+    replay_has_unread_data = 0;
+}
+
+/*! Loads specified VM state. */
+static void replay_loadvm(int64_t state)
+{
+    char name[128];
+    bool running = runstate_is_running();
+    if (running && !qemu_in_vcpu_thread()) {
+        vm_stop(RUN_STATE_RESTORE_VM);
+    } else {
+        cpu_disable_ticks();
+    }
+
+    replay_clear_events();
+
+    sprintf(name, SAVED_STATE_NAME_FORMAT, state);
+    if (load_vmstate(name) < 0) {
+        fprintf(stderr, "Replay: cannot load VM state\n");
+        exit(1);
+    }
+    /* check end event */
+    check_savevm();
+
+    tb_flush_all();
+
+    current_saved_state = state;
+
+    cpu_enable_ticks();
+    if (running && !qemu_in_vcpu_thread()) {
+        vm_start();
+    }
+
+    replay_fetch_data_kind();
+    while (replay_data_kind >= EVENT_CLOCK
+           && replay_data_kind < EVENT_CLOCK + REPLAY_CLOCK_COUNT) {
+        replay_read_next_clock(-1);
+        replay_fetch_data_kind();
+    }
+}
+
+/*! Skips clock events saved to file while saving the VM state. */
+static void replay_skip_savevm(void)
+{
+    replay_has_unread_data = 0;
+    replay_loadvm(current_saved_state + 1);
 }
 
 bool skip_async_events(int stop_event)
@@ -54,6 +222,13 @@ bool skip_async_events(int stop_event)
         case EVENT_SHUTDOWN:
             replay_has_unread_data = 0;
             qemu_system_shutdown_request_impl();
+            break;
+        case EVENT_SAVE_VM_BEGIN:
+            /* cannot correctly load VM while in CPU thread */
+            if (qemu_in_vcpu_thread()) {
+                return res;
+            }
+            replay_skip_savevm();
             break;
         case EVENT_INSTRUCTION:
             first_cpu->instructions_count = replay_get_dword();
@@ -285,6 +460,7 @@ static void replay_enable(const char *fname, int mode)
     replay_data_kind = -1;
     replay_state.skipping_instruction = 0;
     replay_state.current_step = 0;
+    current_saved_state = 0;
 
     /* skip file header for RECORD and check it for PLAY */
     if (replay_mode == REPLAY_MODE_RECORD) {
@@ -296,11 +472,23 @@ static void replay_enable(const char *fname, int mode)
             fprintf(stderr, "Replay: invalid input log file version\n");
             exit(1);
         }
+        /* read states table */
+        fseeko64(replay_file, offset, SEEK_SET);
+        saved_states_count = replay_get_qword();
+        saved_states_capacity = saved_states_count;
+        if (saved_states_count) {
+            saved_states = g_malloc(sizeof(SavedStateInfo)
+                                    * saved_states_count);
+            fread(saved_states, sizeof(SavedStateInfo), saved_states_count,
+                  replay_file);
+        }
         /* go to the beginning */
         fseek(replay_file, 12, SEEK_SET);
     }
 
     replay_init_events();
+
+    vmstate_register(NULL, 0, &vmstate_replay, &replay_state);
 }
 
 void replay_configure(QemuOpts *opts, int mode)
@@ -321,6 +509,7 @@ void replay_configure(QemuOpts *opts, int mode)
     }
 
     replay_icount = (int)qemu_opt_get_number(opts, "icount", 0);
+    save_state_period = 1000LL * qemu_opt_get_number(opts, "period", 0);
 
     replay_enable(fname, mode);
 }
@@ -332,6 +521,26 @@ void replay_init_timer(void)
     }
 
     replay_enable_events();
+
+    /* create timer for states auto-saving */
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        saved_states_count = 0;
+        if (!saved_states) {
+            saved_states = g_malloc(sizeof(SavedStateInfo)
+                                    * SAVED_STATES_MIN_CAPACITY);
+            saved_states_capacity = SAVED_STATES_MIN_CAPACITY;
+        }
+        if (save_state_period) {
+            save_timer = timer_new_ms(QEMU_CLOCK_REALTIME, replay_savevm, NULL);
+            timer_mod(save_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME));
+        }
+        replay_put_event(EVENT_END_STARTUP);
+        /* Save it right now without waiting for timer */
+        replay_savevm(NULL);
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        /* load starting VM state */
+        replay_loadvm(0);
+    }
 }
 
 void replay_finish(void)
@@ -349,6 +558,14 @@ void replay_finish(void)
             /* write end event */
             replay_put_event(EVENT_END);
 
+            /* write states table */
+            offset = ftello64(replay_file);
+            replay_put_qword(saved_states_count);
+            if (saved_states && saved_states_count) {
+                fwrite(saved_states, sizeof(SavedStateInfo),
+                       saved_states_count, replay_file);
+            }
+
             /* write header */
             fseek(replay_file, 0, SEEK_SET);
             replay_put_dword(REPLAY_VERSION);
@@ -357,6 +574,15 @@ void replay_finish(void)
 
         fclose(replay_file);
         replay_file = NULL;
+    }
+    if (save_timer) {
+        timer_del(save_timer);
+        timer_free(save_timer);
+        save_timer = NULL;
+    }
+    if (saved_states) {
+        g_free(saved_states);
+        saved_states = NULL;
     }
     if (replay_filename) {
         g_free(replay_filename);

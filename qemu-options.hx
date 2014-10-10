@@ -3349,11 +3349,12 @@ in @var{file}
 ETEXI
 
 DEF("record", HAS_ARG, QEMU_OPTION_record,
-    "-record fname=<filename>[,suffix=<suffix>,snapshot=<on/off>,icount=<icount>]\n"
+    "-record fname=<filename>[,period=<period>,suffix=<suffix>,snapshot=<on/off>,icount=<icount>]\n"
     "                writes replay file for latter replaying\n",
     QEMU_ARCH_ALL)
 STEXIaddress@hidden -record address@hidden,address@hidden,address@hidden,address@hidden
 Writes compact execution trace into @var{file}.
+VM state is auto saved every @var{period} second, if this parameter is specified.
 Changes for disk images are written
 into separate files with @var{suffix} added. If no @var{suffix} is
 specified, "replay_qcow" is used as suffix.

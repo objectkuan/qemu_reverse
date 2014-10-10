@@ -15,6 +15,8 @@
 #include <stdio.h>
 #include "sysemu/sysemu.h"
 
+/* internal data for savevm */
+#define EVENT_END_STARTUP           0
 /* for time_t event */
 #define EVENT_TIME_T                1
 /* for tm event */
@@ -23,6 +25,10 @@
 #define EVENT_INTERRUPT             15
 /* for shutdown request */
 #define EVENT_SHUTDOWN              20
+/* for save VM event */
+#define EVENT_SAVE_VM_BEGIN         21
+/* for save VM event */
+#define EVENT_SAVE_VM_END           22
 /* for emulated exceptions */
 #define EVENT_EXCEPTION             23
 /* for async events */
@@ -53,8 +59,20 @@ typedef struct ReplayState {
     int skipping_instruction;
     /*! Current step - number of processed instructions and timer events. */
     uint64_t current_step;
+    /*! Temporary data for saving/loading replay file position. */
+    uint64_t file_offset;
 } ReplayState;
 extern ReplayState replay_state;
+
+/*! Information about saved VM state */
+struct SavedStateInfo {
+    /* Offset in the replay log file where state is saved. */
+    uint64_t file_offset;
+    /* Step number, corresponding to the saved state. */
+    uint64_t step;
+};
+/*! Reference to the saved state */
+typedef struct SavedStateInfo SavedStateInfo;
 
 extern volatile unsigned int replay_data_kind;
 extern volatile unsigned int replay_has_unread_data;

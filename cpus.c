@@ -231,12 +231,23 @@ int64_t cpu_get_clock(void)
  */
 void cpu_enable_ticks(void)
 {
+    int64_t ti;
     /* Here, the really thing protected by seqlock is cpu_clock_offset. */
     seqlock_write_lock(&timers_state.vm_clock_seqlock);
     if (!timers_state.cpu_ticks_enabled) {
         if (!replay_icount) {
             timers_state.cpu_ticks_offset -= cpu_get_real_ticks();
-            timers_state.cpu_clock_offset -= get_clock();
+
+            if (replay_mode == REPLAY_MODE_RECORD) {
+                ti = get_clock();
+                replay_save_clock(REPLAY_CLOCK_VIRTUAL, ti);
+            } else if (replay_mode == REPLAY_MODE_PLAY) {
+                ti = replay_read_clock(REPLAY_CLOCK_VIRTUAL);
+            } else {
+                ti = get_clock();
+            }
+
+            timers_state.cpu_clock_offset -= ti;
         }
         timers_state.cpu_ticks_enabled = 1;
     }
@@ -449,6 +460,22 @@ void qemu_clock_warp(QEMUClockType type)
     }
 }
 
+static bool is_replay_enabled(void *opaque)
+{
+    return replay_mode != REPLAY_MODE_NONE;
+}
+
+static const VMStateDescription vmstate_timers_for_replay = {
+    .name = "timer for replay",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .minimum_version_id_old = 1,
+    .fields      = (VMStateField[]) {
+        VMSTATE_INT64(cpu_ticks_prev, TimersState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static const VMStateDescription vmstate_timers = {
     .name = "timer",
     .version_id = 2,
@@ -458,6 +485,14 @@ static const VMStateDescription vmstate_timers = {
         VMSTATE_INT64(dummy, TimersState),
         VMSTATE_INT64_V(cpu_clock_offset, TimersState, 2),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (VMStateSubsection[]) {
+        {
+            .vmsd = &vmstate_timers_for_replay,
+            .needed = is_replay_enabled,
+        }, {
+            /* empty */
+        }
     }
 };
 
@@ -549,9 +584,11 @@ static int do_vm_stop(RunState state)
     int ret = 0;
 
     if (runstate_is_running()) {
+        runstate_set(state);
+        /* Disable ticks can cause recursive call of vm_stop.
+           Stopping before calling functions prevents infinite recursion. */
         cpu_disable_ticks();
         pause_all_vcpus();
-        runstate_set(state);
         vm_state_notify(0, state);
         qapi_event_send_stop(&error_abort);
     }
@@ -1332,10 +1369,9 @@ static void tcg_exec_all(void)
         CPUState *cpu = next_cpu;
         CPUArchState *env = cpu->env_ptr;
 
-        qemu_clock_enable(QEMU_CLOCK_VIRTUAL,
-                          (cpu->singlestep_enabled & SSTEP_NOTIMER) == 0);
-
         if (cpu_can_run(cpu)) {
+            qemu_clock_enable(QEMU_CLOCK_VIRTUAL,
+                              (cpu->singlestep_enabled & SSTEP_NOTIMER) == 0);
             r = tcg_cpu_exec(env);
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
