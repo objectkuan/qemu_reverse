@@ -698,6 +698,13 @@ int rtc_get_memory(ISADevice *dev, int addr)
     return s->cmos_data[addr];
 }
 
+static int rtc_pre_load(void *opaque)
+{
+    RTCState *s = (RTCState *)opaque;
+    s->irq_reinject_on_ack_count = 0;
+    return 0;
+}
+
 static void rtc_set_date_from_host(ISADevice *dev)
 {
     RTCState *s = MC146818_RTC(dev);
@@ -733,10 +740,27 @@ static int rtc_post_load(void *opaque, int version_id)
     return 0;
 }
 
+static const VMStateDescription vmstate_rtc_irq_reinject_on_ack_count = {
+    .name = "irq_reinject_on_ack_count",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_UINT16(irq_reinject_on_ack_count, RTCState),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool rtc_irq_reinject_on_ack_count_needed(void *opaque)
+{
+    RTCState *s = (RTCState *)opaque;
+    return s->irq_reinject_on_ack_count != 0;
+}
+
 static const VMStateDescription vmstate_rtc = {
     .name = "mc146818rtc",
-    .version_id = 3,
+    .version_id = 4,
     .minimum_version_id = 1,
+    .pre_load = rtc_pre_load,
     .post_load = rtc_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_BUFFER(cmos_data, RTCState),
@@ -753,6 +777,14 @@ static const VMStateDescription vmstate_rtc = {
         VMSTATE_TIMER_V(update_timer, RTCState, 3),
         VMSTATE_UINT64_V(next_alarm_time, RTCState, 3),
         VMSTATE_END_OF_LIST()
+    },
+    .subsections = (VMStateSubsection[]) {
+        {
+            .vmsd = &vmstate_rtc_irq_reinject_on_ack_count,
+            .needed = rtc_irq_reinject_on_ack_count_needed,
+        }, {
+            /* empty */
+        }
     }
 };
 
