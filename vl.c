@@ -118,6 +118,7 @@ int main(int argc, char **argv)
 #include "qapi/opts-visitor.h"
 #include "qom/object_interfaces.h"
 #include "qapi-event.h"
+#include "replay/replay.h"
 
 #define DEFAULT_RAM_SIZE 128
 
@@ -757,7 +758,7 @@ void vm_start(void)
 
 /***********************************************************/
 /* host time/date access */
-void qemu_get_timedate(struct tm *tm, int offset)
+void qemu_get_timedate_no_warning(struct tm *tm, int offset)
 {
     time_t ti;
 
@@ -772,6 +773,16 @@ void qemu_get_timedate(struct tm *tm, int offset)
         ti -= rtc_date_offset;
         gmtime_r(&ti, tm);
     }
+}
+
+/* host time/date access with replay warning */
+void qemu_get_timedate(struct tm *tm, int offset)
+{
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        fprintf(stderr, "REPLAY WARNING! qemu_get_timedate "
+                        "function may lead to non-determinism\n");
+    }
+    qemu_get_timedate_no_warning(tm, offset);
 }
 
 int qemu_timedate_diff(struct tm *tm)
@@ -789,7 +800,7 @@ int qemu_timedate_diff(struct tm *tm)
     else
         seconds = mktimegm(tm) + rtc_date_offset;
 
-    return seconds - time(NULL);
+    return seconds - replay_time();
 }
 
 static void configure_rtc_date_offset(const char *startdate, int legacy)
@@ -827,7 +838,7 @@ static void configure_rtc_date_offset(const char *startdate, int legacy)
                             "'2006-06-17T16:01:21' or '2006-06-17'\n");
             exit(1);
         }
-        rtc_date_offset = time(NULL) - rtc_start_date;
+        rtc_date_offset = replay_time() - rtc_start_date;
     }
 }
 

@@ -121,6 +121,7 @@ extern int use_icount;
 int qemu_main(int argc, char **argv, char **envp);
 #endif
 
+void qemu_get_timedate_no_warning(struct tm *tm, int offset);
 void qemu_get_timedate(struct tm *tm, int offset);
 int qemu_timedate_diff(struct tm *tm);
 

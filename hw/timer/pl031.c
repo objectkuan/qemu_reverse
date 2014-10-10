@@ -14,6 +14,7 @@
 #include "hw/sysbus.h"
 #include "qemu/timer.h"
 #include "sysemu/sysemu.h"
+#include "replay/replay.h"
 
 //#define DEBUG_PL031
 
@@ -200,7 +201,14 @@ static int pl031_init(SysBusDevice *dev)
     sysbus_init_mmio(dev, &s->iomem);
 
     sysbus_init_irq(dev, &s->irq);
-    qemu_get_timedate(&tm, 0);
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        qemu_get_timedate_no_warning(&tm, 0);
+        replay_save_tm(&tm);
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        replay_read_tm(&tm);
+    } else {
+        qemu_get_timedate_no_warning(&tm, 0);
+    }
     s->tick_offset = mktimegm(&tm) -
         qemu_clock_get_ns(rtc_clock) / get_ticks_per_sec();
 

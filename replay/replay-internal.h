@@ -15,6 +15,10 @@
 #include <stdio.h>
 #include "sysemu/sysemu.h"
 
+/* for time_t event */
+#define EVENT_TIME_T                1
+/* for tm event */
+#define EVENT_TM                    2
 /* for software interrupt */
 #define EVENT_INTERRUPT             15
 /* for emulated exceptions */

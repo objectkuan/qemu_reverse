@@ -28,6 +28,7 @@
 #include "qapi/visitor.h"
 #include "qapi-event.h"
 #include "qmp-commands.h"
+#include "replay/replay.h"
 
 #ifdef TARGET_I386
 #include "hw/i386/apic.h"
@@ -710,7 +711,7 @@ static void rtc_set_date_from_host(ISADevice *dev)
     RTCState *s = MC146818_RTC(dev);
     struct tm tm;
 
-    qemu_get_timedate(&tm, 0);
+    qemu_get_timedate_no_warning(&tm, 0);
 
     s->base_rtc = mktimegm(&tm);
     s->last_update = qemu_clock_get_ns(rtc_clock);

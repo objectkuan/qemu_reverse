@@ -14,6 +14,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include <time.h>
 #include "qapi-types.h"
 
 /* replay clock kinds */
@@ -64,6 +65,13 @@ bool replay_has_interrupt(void);
 void replay_save_clock(unsigned int kind, int64_t clock);
 /*! Read the specified clock from the log or return cached data */
 int64_t replay_read_clock(unsigned int kind);
+/*! Returns result of time() function execution in normal and record modes.
+    In play mode returns value read from the log. */
+time_t replay_time(void);
+/*! Saves struct tm value to the log */
+void replay_save_tm(struct tm *tm);
+/*! Reads struct tm value from the log. Stops execution in case of error */
+void replay_read_tm(struct tm *tm);
 
 /* Asynchronous events queue */
 
