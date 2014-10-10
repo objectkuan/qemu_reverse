@@ -59,6 +59,17 @@ static void replay_run_event(Event *event)
     case REPLAY_ASYNC_EVENT_CHAR:
         replay_event_char_run(event->opaque);
         break;
+#ifdef CONFIG_USB_LIBUSB
+    case REPLAY_ASYNC_EVENT_USB_CTRL:
+        replay_event_usb_ctrl(event->opaque);
+        break;
+    case REPLAY_ASYNC_EVENT_USB_DATA:
+        replay_event_usb_data(event->opaque);
+        break;
+    case REPLAY_ASYNC_EVENT_USB_ISO:
+        replay_event_usb_iso(event->opaque);
+        break;
+#endif
     default:
         fprintf(stderr, "Replay: invalid async event ID (%d) in the queue\n",
                 event->event_kind);
@@ -162,6 +173,11 @@ void replay_add_input_sync_event(void)
     replay_add_event_internal(REPLAY_ASYNC_EVENT_INPUT_SYNC, NULL, NULL, 0);
 }
 
+void replay_add_usb_event(unsigned int event_kind, uint64_t id, void *opaque)
+{
+    replay_add_event_internal(event_kind, opaque, NULL, id);
+}
+
 void replay_save_events(int opt)
 {
     qemu_mutex_lock(&lock);
@@ -192,6 +208,17 @@ void replay_save_events(int opt)
             case REPLAY_ASYNC_EVENT_CHAR:
                 replay_event_char_save(event->opaque);
                 break;
+#ifdef CONFIG_USB_LIBUSB
+            case REPLAY_ASYNC_EVENT_USB_CTRL:
+            case REPLAY_ASYNC_EVENT_USB_DATA:
+                replay_put_qword(event->id);
+                replay_event_save_usb_xfer(event->opaque);
+                break;
+            case REPLAY_ASYNC_EVENT_USB_ISO:
+                replay_put_qword(event->id);
+                replay_event_save_usb_iso_xfer(event->opaque);
+                break;
+#endif
             }
         }
 
@@ -275,6 +302,16 @@ void replay_read_events(int opt)
             replay_run_event(&e);
             /* continue with the next event */
             continue;
+#ifdef CONFIG_USB_LIBUSB
+        case REPLAY_ASYNC_EVENT_USB_CTRL:
+        case REPLAY_ASYNC_EVENT_USB_DATA:
+        case REPLAY_ASYNC_EVENT_USB_ISO:
+            if (read_id == -1) {
+                read_id = replay_get_qword();
+            }
+            /* read after finding event in the list */
+            break;
+#endif
         default:
             fprintf(stderr, "Unknown ID %d of replay event\n", read_event_kind);
             exit(1);
@@ -295,6 +332,17 @@ void replay_read_events(int opt)
 
         if (event) {
             /* read event-specific reading data */
+#ifdef CONFIG_USB_LIBUSB
+            switch (read_event_kind) {
+            case REPLAY_ASYNC_EVENT_USB_CTRL:
+            case REPLAY_ASYNC_EVENT_USB_DATA:
+                replay_event_read_usb_xfer(event->opaque);
+                break;
+            case REPLAY_ASYNC_EVENT_USB_ISO:
+                replay_event_read_usb_iso_xfer(event->opaque);
+                break;
+            }
+#endif
 
             QTAILQ_REMOVE(&events_list, event, events);
 

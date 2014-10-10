@@ -25,6 +25,7 @@ struct QemuOpts;
 struct InputEvent;
 struct NetClientState;
 struct CharDriverState;
+struct libusb_transfer;
 
 /* replay clock kinds */
 /* rdtsc */
@@ -157,9 +158,38 @@ void replay_register_char_driver(struct CharDriverState *chr);
 /*! Saves write to char device event to the log */
 void replay_chr_be_write(struct CharDriverState *s, uint8_t *buf, int len);
 
+/* USB events */
+
+/*! Called in save mode when xfer for ctrl usb data is completed */
+void replay_req_complete_ctrl(struct libusb_transfer *xfer);
+/*! Called in play mode to register xfer
+    to be completed by reading it from the log */
+void replay_req_register_ctrl(struct libusb_transfer *xfer);
+/*! Called in save mode when xfer for usb data request is completed */
+void replay_req_complete_data(struct libusb_transfer *xfer);
+/*! Called in play mode to register xfer
+    to be completed by reading it from the log */
+void replay_req_register_data(struct libusb_transfer *xfer);
+/*! Called in save mode when iso xfer for usb data request is completed */
+void replay_req_complete_iso(struct libusb_transfer *xfer);
+/*! Called in play mode to register iso xfer
+    to be completed by reading it from the log */
+void replay_req_register_iso(struct libusb_transfer *xfer);
+
 /* Other data */
 
 /*! Writes or reads integer value to/from replay log. */
 void replay_data_int(int *data);
+/*! Macro for using replay_data_int function */
+#define REPLAY_DATA_INT(var, value) \
+        ((replay_mode == REPLAY_MODE_NONE ? var = (value) \
+            : replay_mode == REPLAY_MODE_RECORD \
+                ? (var = (value), replay_data_int(&var), var) \
+                : /* PLAY */ (replay_data_int(&var), var)))
+/*! Writes or reads buffer to/from replay log. */
+void replay_data_buffer(unsigned char *data, size_t size);
+/*! Macro for using replay_data_buffer function */
+#define REPLAY_DATA_VAR(var) \
+           replay_data_buffer((unsigned char *)&(var), sizeof(var))
 
 #endif

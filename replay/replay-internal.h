@@ -40,6 +40,8 @@
 #define EVENT_ASYNC_OPT             25
 /* for int data */
 #define EVENT_DATA_INT              26
+/* for data buffer */
+#define EVENT_DATA_BUFFER           27
 /* for instruction event */
 #define EVENT_INSTRUCTION           32
 /* for clock read/writes */
@@ -59,7 +61,10 @@
 #define REPLAY_ASYNC_EVENT_INPUT_SYNC  3
 #define REPLAY_ASYNC_EVENT_NETWORK     4
 #define REPLAY_ASYNC_EVENT_CHAR        5
-#define REPLAY_ASYNC_COUNT             6
+#define REPLAY_ASYNC_EVENT_USB_CTRL    6
+#define REPLAY_ASYNC_EVENT_USB_DATA    7
+#define REPLAY_ASYNC_EVENT_USB_ISO     8
+#define REPLAY_ASYNC_COUNT             9
 
 typedef struct ReplayState {
     /*! Cached clock values. */
@@ -194,5 +199,19 @@ void replay_event_char_run(void *opaque);
 void replay_event_char_save(void *opaque);
 /*! Reads char event from the file. */
 void *replay_event_char_read(void);
+
+/* USB events */
+
+void replay_event_usb_ctrl(void *opaque);
+void replay_event_usb_data(void *opaque);
+void replay_event_usb_iso(void *opaque);
+void replay_event_save_usb_xfer(void *opaque);
+void replay_event_save_usb_iso_xfer(void *opaque);
+void replay_event_read_usb_xfer(void *opaque);
+void replay_event_read_usb_iso_xfer(void *opaque);
+void replay_event_skip_usb_xfer(void);
+void replay_event_skip_usb_iso_xfer(void);
+bool replay_usb_has_xfers(void);
+void replay_add_usb_event(unsigned int event_id, uint64_t id, void *opaque);
 
 #endif

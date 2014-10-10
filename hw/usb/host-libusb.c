@@ -40,98 +40,15 @@
 #include "monitor/monitor.h"
 #include "sysemu/sysemu.h"
 #include "trace.h"
+#include "qemu/log.h"
+#include "replay/replay.h"
 
 #include "hw/usb.h"
+#include "hw/host-libusb.h"
 
 /* ------------------------------------------------------------------------ */
 
-#define TYPE_USB_HOST_DEVICE "usb-host"
-#define USB_HOST_DEVICE(obj) \
-     OBJECT_CHECK(USBHostDevice, (obj), TYPE_USB_HOST_DEVICE)
-
-typedef struct USBHostDevice USBHostDevice;
-typedef struct USBHostRequest USBHostRequest;
-typedef struct USBHostIsoXfer USBHostIsoXfer;
-typedef struct USBHostIsoRing USBHostIsoRing;
-
-struct USBAutoFilter {
-    uint32_t bus_num;
-    uint32_t addr;
-    char     *port;
-    uint32_t vendor_id;
-    uint32_t product_id;
-};
-
-enum USBHostDeviceOptions {
-    USB_HOST_OPT_PIPELINE,
-};
-
-struct USBHostDevice {
-    USBDevice parent_obj;
-
-    /* properties */
-    struct USBAutoFilter             match;
-    int32_t                          bootindex;
-    uint32_t                         iso_urb_count;
-    uint32_t                         iso_urb_frames;
-    uint32_t                         options;
-    uint32_t                         loglevel;
-
-    /* state */
-    QTAILQ_ENTRY(USBHostDevice)      next;
-    int                              seen, errcount;
-    int                              bus_num;
-    int                              addr;
-    char                             port[16];
-
-    libusb_device                    *dev;
-    libusb_device_handle             *dh;
-    struct libusb_device_descriptor  ddesc;
-
-    struct {
-        bool                         detached;
-        bool                         claimed;
-    } ifs[USB_MAX_INTERFACES];
-
-    /* callbacks & friends */
-    QEMUBH                           *bh_nodev;
-    QEMUBH                           *bh_postld;
-    Notifier                         exit;
-
-    /* request queues */
-    QTAILQ_HEAD(, USBHostRequest)    requests;
-    QTAILQ_HEAD(, USBHostIsoRing)    isorings;
-};
-
-struct USBHostRequest {
-    USBHostDevice                    *host;
-    USBPacket                        *p;
-    bool                             in;
-    struct libusb_transfer           *xfer;
-    unsigned char                    *buffer;
-    unsigned char                    *cbuf;
-    unsigned int                     clen;
     bool                             usb3ep0quirk;
-    QTAILQ_ENTRY(USBHostRequest)     next;
-};
-
-struct USBHostIsoXfer {
-    USBHostIsoRing                   *ring;
-    struct libusb_transfer           *xfer;
-    bool                             copy_complete;
-    unsigned int                     packet;
-    QTAILQ_ENTRY(USBHostIsoXfer)     next;
-};
-
-struct USBHostIsoRing {
-    USBHostDevice                    *host;
-    USBEndpoint                      *ep;
-    QTAILQ_HEAD(, USBHostIsoXfer)    unused;
-    QTAILQ_HEAD(, USBHostIsoXfer)    inflight;
-    QTAILQ_HEAD(, USBHostIsoXfer)    copy;
-    QTAILQ_ENTRY(USBHostIsoRing)     next;
-};
-
 static QTAILQ_HEAD(, USBHostDevice) hostdevs =
     QTAILQ_HEAD_INITIALIZER(hostdevs);
 
@@ -142,6 +59,24 @@ static void usb_host_detach_kernel(USBHostDevice *s);
 static void usb_host_attach_kernel(USBHostDevice *s);
 
 /* ------------------------------------------------------------------------ */
+
+typedef struct USBHostTimer {
+    QEMUTimer *timer;
+} USBHostTimer;
+
+USBHostTimer usb_auto_timer;
+static int submitted_xfers = 0;
+
+static const VMStateDescription vmstate_usb_host_timer = {
+    .name = "usb-host-timer",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_TIMER(timer, USBHostTimer),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 
 #define CONTROL_TIMEOUT  10000        /* 10 sec    */
 #define BULK_TIMEOUT         0        /* unlimited */
@@ -214,6 +149,11 @@ static void usb_host_del_fd(int fd, void *user_data)
     qemu_set_fd_handler(fd, NULL, NULL, NULL);
 }
 
+bool usb_host_has_xfers(void)
+{
+    return submitted_xfers != 0;
+}
+
 static int usb_host_init(void)
 {
     const struct libusb_pollfd **poll;
@@ -226,18 +166,35 @@ static int usb_host_init(void)
     if (rc != 0) {
         return -1;
     }
-    libusb_set_debug(ctx, loglevel);
-
-    libusb_set_pollfd_notifiers(ctx, usb_host_add_fd,
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_set_debug(ctx, loglevel);
+        libusb_set_pollfd_notifiers(ctx, usb_host_add_fd,
                                 usb_host_del_fd,
                                 ctx);
-    poll = libusb_get_pollfds(ctx);
-    if (poll) {
-        for (i = 0; poll[i] != NULL; i++) {
-            usb_host_add_fd(poll[i]->fd, poll[i]->events, ctx);
+
+        poll = libusb_get_pollfds(ctx);
+        if (poll) {
+            for (i = 0; poll[i] != NULL; i++) {
+                usb_host_add_fd(poll[i]->fd, poll[i]->events, ctx);
+            }
+        }
+        free(poll);
+    }
+
+    /* replay: changed timer for working with VM clock instead of RT */
+    if (!usb_auto_timer.timer) {
+        usb_auto_timer.timer = timer_new_ms(QEMU_CLOCK_VIRTUAL,
+                                            usb_host_auto_check, NULL);
+        if (!usb_auto_timer.timer) {
+            return -1;
+        }
+        trace_usb_host_auto_scan_enabled();
+
+        if (replay_mode != REPLAY_MODE_NONE) {
+            vmstate_register(NULL, 0, &vmstate_usb_host_timer, &usb_auto_timer);
         }
     }
-    free(poll);
+
     return 0;
 }
 
@@ -252,6 +209,7 @@ static int usb_host_get_port(libusb_device *dev, char *port, size_t len)
 #else
     rc = libusb_get_port_path(ctx, dev, path, 7);
 #endif
+
     if (rc < 0) {
         return 0;
     }
@@ -307,6 +265,7 @@ static USBHostRequest *usb_host_req_alloc(USBHostDevice *s, USBPacket *p,
     r->host = s;
     r->p = p;
     r->in = in;
+    /* allocate xfer's in REPLAY_MODE_PLAY too */
     r->xfer = libusb_alloc_transfer(0);
     if (bufsize) {
         r->buffer = g_malloc(bufsize);
@@ -320,6 +279,7 @@ static void usb_host_req_free(USBHostRequest *r)
     if (r->host) {
         QTAILQ_REMOVE(&r->host->requests, r, next);
     }
+    /* free xfer's in REPLAY_MODE_PLAY too */
     libusb_free_transfer(r->xfer);
     g_free(r->buffer);
     g_free(r);
@@ -337,12 +297,13 @@ static USBHostRequest *usb_host_req_find(USBHostDevice *s, USBPacket *p)
     return NULL;
 }
 
-static void usb_host_req_complete_ctrl(struct libusb_transfer *xfer)
+void usb_host_req_complete_ctrl(struct libusb_transfer *xfer)
 {
     USBHostRequest *r = xfer->user_data;
     USBHostDevice  *s = r->host;
     bool disconnect = (xfer->status == LIBUSB_TRANSFER_NO_DEVICE);
 
+    --submitted_xfers;
     if (r->p == NULL) {
         goto out; /* request was canceled */
     }
@@ -354,7 +315,7 @@ static void usb_host_req_complete_ctrl(struct libusb_transfer *xfer)
 
         /* Fix up USB-3 ep0 maxpacket size to allow superspeed connected devices
          * to work redirected to a not superspeed capable hcd */
-        if (r->usb3ep0quirk && xfer->actual_length >= 18 &&
+        if (usb3ep0quirk && xfer->actual_length >= 18 &&
             r->cbuf[7] == 9) {
             r->cbuf[7] = 64;
         }
@@ -370,12 +331,13 @@ out:
     }
 }
 
-static void usb_host_req_complete_data(struct libusb_transfer *xfer)
+void usb_host_req_complete_data(struct libusb_transfer *xfer)
 {
     USBHostRequest *r = xfer->user_data;
     USBHostDevice  *s = r->host;
     bool disconnect = (xfer->status == LIBUSB_TRANSFER_NO_DEVICE);
 
+    --submitted_xfers;
     if (r->p == NULL) {
         goto out; /* request was canceled */
     }
@@ -419,17 +381,17 @@ static void usb_host_req_abort(USBHostRequest *r)
     QTAILQ_REMOVE(&r->host->requests, r, next);
     r->host = NULL;
 
-    if (inflight) {
+    if (inflight && replay_mode != REPLAY_MODE_PLAY) {
         libusb_cancel_transfer(r->xfer);
     }
 }
 
 /* ------------------------------------------------------------------------ */
 
-static void usb_host_req_complete_iso(struct libusb_transfer *transfer)
+void usb_host_req_complete_iso(struct libusb_transfer *transfer)
 {
     USBHostIsoXfer *xfer = transfer->user_data;
-
+    --submitted_xfers;
     if (!xfer) {
         /* USBHostIsoXfer released while inflight */
         g_free(transfer->buffer);
@@ -467,6 +429,7 @@ static USBHostIsoRing *usb_host_iso_alloc(USBHostDevice *s, USBEndpoint *ep)
     for (i = 0; i < s->iso_urb_count; i++) {
         xfer = g_new0(USBHostIsoXfer, 1);
         xfer->ring = ring;
+        /* OK for replay too */
         xfer->xfer = libusb_alloc_transfer(packets);
         xfer->xfer->dev_handle = s->dh;
         xfer->xfer->type = LIBUSB_TRANSFER_TYPE_ISOCHRONOUS;
@@ -475,7 +438,9 @@ static USBHostIsoRing *usb_host_iso_alloc(USBHostDevice *s, USBEndpoint *ep)
         if (ring->ep->pid == USB_TOKEN_IN) {
             xfer->xfer->endpoint |= USB_DIR_IN;
         }
-        xfer->xfer->callback = usb_host_req_complete_iso;
+        xfer->xfer->callback = replay_mode == REPLAY_MODE_NONE
+                               ? usb_host_req_complete_iso
+                               : replay_req_complete_iso;
         xfer->xfer->user_data = xfer;
 
         xfer->xfer->num_iso_packets = packets;
@@ -514,6 +479,7 @@ static void usb_host_iso_free_xfer(USBHostIsoXfer *xfer, bool inflight)
         xfer->xfer->user_data = NULL;
     } else {
         g_free(xfer->xfer->buffer);
+        /* REPLAY_MODE_PLAY also allocates xfer */
         libusb_free_transfer(xfer->xfer);
     }
     g_free(xfer);
@@ -549,12 +515,19 @@ static void usb_host_iso_free_all(USBHostDevice *s)
     }
 }
 
+
+unsigned char *usb_host_get_iso_packet_buffer(USBHostIsoXfer *xfer, int packet)
+{
+    /* replay OK */
+    return libusb_get_iso_packet_buffer_simple(xfer->xfer, packet);
+}
+
 static bool usb_host_iso_data_copy(USBHostIsoXfer *xfer, USBPacket *p)
 {
     unsigned int psize;
     unsigned char *buf;
 
-    buf = libusb_get_iso_packet_buffer_simple(xfer->xfer, xfer->packet);
+    buf = usb_host_get_iso_packet_buffer(xfer, xfer->packet);
     if (p->pid == USB_TOKEN_OUT) {
         psize = p->iov.size;
         if (psize > xfer->ring->ep->max_packet_size) {
@@ -600,7 +573,7 @@ static void usb_host_iso_data_in(USBHostDevice *s, USBPacket *p)
     while ((xfer = QTAILQ_FIRST(&ring->unused)) != NULL) {
         QTAILQ_REMOVE(&ring->unused, xfer, next);
         usb_host_iso_reset_xfer(xfer);
-        rc = libusb_submit_transfer(xfer->xfer);
+        REPLAY_DATA_INT(rc, libusb_submit_transfer(xfer->xfer));
         if (rc != 0) {
             usb_host_libusb_error("libusb_submit_transfer [iso]", rc);
             QTAILQ_INSERT_TAIL(&ring->unused, xfer, next);
@@ -608,6 +581,9 @@ static void usb_host_iso_data_in(USBHostDevice *s, USBPacket *p)
                 disconnect = true;
             }
             break;
+        } else {
+            replay_req_register_iso(xfer->xfer);
+            ++submitted_xfers;
         }
         if (QTAILQ_EMPTY(&ring->inflight)) {
             trace_usb_host_iso_start(s->bus_num, s->addr, p->ep->nr);
@@ -662,7 +638,7 @@ static void usb_host_iso_data_out(USBHostDevice *s, USBPacket *p)
     while ((xfer = QTAILQ_FIRST(&ring->copy)) != NULL &&
            xfer->copy_complete) {
         QTAILQ_REMOVE(&ring->copy, xfer, next);
-        rc = libusb_submit_transfer(xfer->xfer);
+        REPLAY_DATA_INT(rc, libusb_submit_transfer(xfer->xfer));
         if (rc != 0) {
             usb_host_libusb_error("libusb_submit_transfer [iso]", rc);
             QTAILQ_INSERT_TAIL(&ring->unused, xfer, next);
@@ -670,6 +646,9 @@ static void usb_host_iso_data_out(USBHostDevice *s, USBPacket *p)
                 disconnect = true;
             }
             break;
+        } else {
+            replay_req_register_iso(xfer->xfer);
+            ++submitted_xfers;
         }
         if (QTAILQ_EMPTY(&ring->inflight)) {
             trace_usb_host_iso_start(s->bus_num, s->addr, p->ep->nr);
@@ -697,6 +676,11 @@ static void usb_host_speed_compat(USBHostDevice *s)
     bool compat_full = true;
     uint8_t type;
     int rc, c, i, a, e;
+    bool ok = false;
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        REPLAY_DATA_VAR(ok);
+        return;
+    }
 
     for (c = 0;; c++) {
         rc = libusb_get_config_descriptor(s->dev, c, &conf);
@@ -762,9 +746,12 @@ static void usb_host_ep_update(USBHostDevice *s)
         [USB_ENDPOINT_XFER_INT]     = "int",
     };
     USBDevice *udev = USB_DEVICE(s);
-    struct libusb_config_descriptor *conf;
-    const struct libusb_interface_descriptor *intf;
-    const struct libusb_endpoint_descriptor *endp;
+    struct libusb_config_descriptor dummy_conf;
+    struct libusb_interface_descriptor dummy_intf;
+    struct libusb_endpoint_descriptor dummy_endp;
+    struct libusb_config_descriptor *conf = &dummy_conf;
+    struct libusb_interface_descriptor *intf;
+    struct libusb_endpoint_descriptor *endp;
 #ifdef HAVE_STREAMS
     struct libusb_ss_endpoint_companion_descriptor *endp_ss_comp;
 #endif
@@ -773,21 +760,37 @@ static void usb_host_ep_update(USBHostDevice *s)
     int rc, i, e;
 
     usb_ep_reset(udev);
-    rc = libusb_get_active_config_descriptor(s->dev, &conf);
+    REPLAY_DATA_INT(rc, libusb_get_active_config_descriptor(s->dev, &conf));
     if (rc != 0) {
         return;
     }
     trace_usb_host_parse_config(s->bus_num, s->addr,
                                 conf->bConfigurationValue, true);
 
+    REPLAY_DATA_VAR(conf->bNumInterfaces);
     for (i = 0; i < conf->bNumInterfaces; i++) {
-        assert(udev->altsetting[i] < conf->interface[i].num_altsetting);
-        intf = &conf->interface[i].altsetting[udev->altsetting[i]];
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            assert(udev->altsetting[i] < conf->interface[i].num_altsetting);
+            intf = (struct libusb_interface_descriptor *)
+                       &conf->interface[i].altsetting[udev->altsetting[i]];
+        } else {
+            intf = &dummy_intf;
+        }
+        REPLAY_DATA_VAR(intf->bInterfaceNumber);
+        REPLAY_DATA_VAR(intf->bAlternateSetting);
+        REPLAY_DATA_VAR(intf->bNumEndpoints);
         trace_usb_host_parse_interface(s->bus_num, s->addr,
                                        intf->bInterfaceNumber,
                                        intf->bAlternateSetting, true);
         for (e = 0; e < intf->bNumEndpoints; e++) {
-            endp = &intf->endpoint[e];
+            if (replay_mode != REPLAY_MODE_PLAY) {
+                endp = (struct libusb_endpoint_descriptor *)&intf->endpoint[e];
+            } else {
+                endp = &dummy_endp;
+            }
+            REPLAY_DATA_VAR(endp->bEndpointAddress);
+            REPLAY_DATA_VAR(endp->bmAttributes);
+            REPLAY_DATA_VAR(endp->wMaxPacketSize);
 
             devep = endp->bEndpointAddress;
             pid = (devep & USB_DIR_IN) ? USB_TOKEN_IN : USB_TOKEN_OUT;
@@ -825,45 +828,77 @@ static void usb_host_ep_update(USBHostDevice *s)
         }
     }
 
-    libusb_free_config_descriptor(conf);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_free_config_descriptor(conf);
+    }
 }
 
 static int usb_host_open(USBHostDevice *s, libusb_device *dev)
 {
     USBDevice *udev = USB_DEVICE(s);
-    int bus_num = libusb_get_bus_number(dev);
-    int addr    = libusb_get_device_address(dev);
+    int bus_num;
+    REPLAY_DATA_INT(bus_num, libusb_get_bus_number(dev));
+    int addr;
+    REPLAY_DATA_INT(addr, libusb_get_device_address(dev));
     int rc;
+    int speed;
 
     trace_usb_host_open_started(bus_num, addr);
 
-    if (s->dh != NULL) {
+    if (s->is_open) {
         goto fail;
     }
-    rc = libusb_open(dev, &s->dh);
+    REPLAY_DATA_INT(rc, libusb_open(dev, &s->dh));
     if (rc != 0) {
         goto fail;
     }
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        /* invalid non-NULL pointer for checking conditions */
+        s->dh = (void *)0xbad;
+    }
+    s->is_open = true;
 
+    usb_host_detach_kernel(s);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_get_device_descriptor(dev, &s->ddesc);
+    }
+    REPLAY_DATA_VAR(s->ddesc.bLength);
+    REPLAY_DATA_VAR(s->ddesc.bDescriptorType);
+    REPLAY_DATA_VAR(s->ddesc.bcdUSB);
+    REPLAY_DATA_VAR(s->ddesc.bDeviceClass);
+    REPLAY_DATA_VAR(s->ddesc.bDeviceSubClass);
+    REPLAY_DATA_VAR(s->ddesc.bDeviceProtocol);
+    REPLAY_DATA_VAR(s->ddesc.bMaxPacketSize0);
+    REPLAY_DATA_VAR(s->ddesc.idVendor);
+    REPLAY_DATA_VAR(s->ddesc.idProduct);
+    REPLAY_DATA_VAR(s->ddesc.bcdDevice);
+    REPLAY_DATA_VAR(s->ddesc.iManufacturer);
+    REPLAY_DATA_VAR(s->ddesc.iProduct);
+    REPLAY_DATA_VAR(s->ddesc.iSerialNumber);
+    REPLAY_DATA_VAR(s->ddesc.bNumConfigurations);
     s->dev     = dev;
     s->bus_num = bus_num;
     s->addr    = addr;
-
-    usb_host_detach_kernel(s);
-
-    libusb_get_device_descriptor(dev, &s->ddesc);
-    usb_host_get_port(s->dev, s->port, sizeof(s->port));
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        usb_host_get_port(s->dev, s->port, sizeof(s->port));
+    }
+    replay_data_buffer((unsigned char *)s->port, sizeof(s->port));
 
     usb_ep_init(udev);
     usb_host_ep_update(s);
 
-    udev->speed     = speed_map[libusb_get_device_speed(dev)];
+    udev->speed = speed_map[REPLAY_DATA_INT(speed,
+                                            libusb_get_device_speed(dev))];
     usb_host_speed_compat(s);
 
     if (s->ddesc.iProduct) {
-        libusb_get_string_descriptor_ascii(s->dh, s->ddesc.iProduct,
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            libusb_get_string_descriptor_ascii(s->dh, s->ddesc.iProduct,
                                            (unsigned char *)udev->product_desc,
                                            sizeof(udev->product_desc));
+        }
+        replay_data_buffer((unsigned char *)udev->product_desc,
+                           sizeof(udev->product_desc));
     } else {
         snprintf(udev->product_desc, sizeof(udev->product_desc),
                  "host:%d.%d", bus_num, addr);
@@ -879,10 +914,13 @@ static int usb_host_open(USBHostDevice *s, libusb_device *dev)
 
 fail:
     trace_usb_host_open_failure(bus_num, addr);
-    if (s->dh != NULL) {
-        libusb_close(s->dh);
+    if (s->is_open) {
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            libusb_close(s->dh);
+        }
         s->dh = NULL;
         s->dev = NULL;
+        s->is_open = false;
     }
     return -1;
 }
@@ -896,11 +934,20 @@ static void usb_host_abort_xfers(USBHostDevice *s)
     }
 }
 
+static void usb_host_free_xfers(USBHostDevice *s)
+{
+    USBHostRequest *r;
+
+    while ((r = QTAILQ_FIRST(&s->requests)) != NULL) {
+        usb_host_req_free(r);
+    }
+}
+
 static int usb_host_close(USBHostDevice *s)
 {
     USBDevice *udev = USB_DEVICE(s);
 
-    if (s->dh == NULL) {
+    if (!s->is_open) {
         return -1;
     }
 
@@ -914,11 +961,20 @@ static int usb_host_close(USBHostDevice *s)
     }
 
     usb_host_release_interfaces(s);
-    libusb_reset_device(s->dh);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_reset_device(s->dh);
+    }
+
     usb_host_attach_kernel(s);
-    libusb_close(s->dh);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_close(s->dh);
+    }
+
+    /*replay_unregister_usb_device(udev);*/
+
     s->dh = NULL;
     s->dev = NULL;
+    s->is_open = false;
 
     usb_host_auto_check(NULL);
     return 0;
@@ -933,7 +989,7 @@ static void usb_host_nodev_bh(void *opaque)
 static void usb_host_nodev(USBHostDevice *s)
 {
     if (!s->bh_nodev) {
-        s->bh_nodev = qemu_bh_new(usb_host_nodev_bh, s);
+        s->bh_nodev = qemu_bh_new_replay(usb_host_nodev_bh, s, s->bus_num);
     }
     qemu_bh_schedule(s->bh_nodev);
 }
@@ -942,7 +998,7 @@ static void usb_host_exit_notifier(struct Notifier *n, void *data)
 {
     USBHostDevice *s = container_of(n, USBHostDevice, exit);
 
-    if (s->dh) {
+    if (s->is_open) {
         usb_host_release_interfaces(s);
         usb_host_attach_kernel(s);
     }
@@ -1004,57 +1060,70 @@ static void usb_host_cancel_packet(USBDevice *udev, USBPacket *p)
     r = usb_host_req_find(s, p);
     if (r && r->p) {
         r->p = NULL; /* mark as dead */
-        libusb_cancel_transfer(r->xfer);
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            libusb_cancel_transfer(r->xfer);
+        }
     }
 }
 
 static void usb_host_detach_kernel(USBHostDevice *s)
 {
-    struct libusb_config_descriptor *conf;
+    struct libusb_config_descriptor dummy_conf;
+    struct libusb_config_descriptor *conf = &dummy_conf;
     int rc, i;
 
-    rc = libusb_get_active_config_descriptor(s->dev, &conf);
+    REPLAY_DATA_INT(rc, libusb_get_active_config_descriptor(s->dev, &conf));
     if (rc != 0) {
         return;
     }
+    REPLAY_DATA_VAR(conf->bNumInterfaces);
     for (i = 0; i < conf->bNumInterfaces; i++) {
-        rc = libusb_kernel_driver_active(s->dh, i);
+        REPLAY_DATA_INT(rc, libusb_kernel_driver_active(s->dh, i));
         usb_host_libusb_error("libusb_kernel_driver_active", rc);
         if (rc != 1) {
             continue;
         }
         trace_usb_host_detach_kernel(s->bus_num, s->addr, i);
-        rc = libusb_detach_kernel_driver(s->dh, i);
+        REPLAY_DATA_INT(rc, libusb_detach_kernel_driver(s->dh, i));
         usb_host_libusb_error("libusb_detach_kernel_driver", rc);
         s->ifs[i].detached = true;
     }
-    libusb_free_config_descriptor(conf);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_free_config_descriptor(conf);
+    }
 }
 
 static void usb_host_attach_kernel(USBHostDevice *s)
 {
-    struct libusb_config_descriptor *conf;
+    struct libusb_config_descriptor dummy_conf;
+    struct libusb_config_descriptor *conf = &dummy_conf;
     int rc, i;
 
-    rc = libusb_get_active_config_descriptor(s->dev, &conf);
+    REPLAY_DATA_INT(rc, libusb_get_active_config_descriptor(s->dev, &conf));
     if (rc != 0) {
         return;
     }
-    for (i = 0; i < conf->bNumInterfaces; i++) {
+    REPLAY_DATA_VAR(conf->bNumInterfaces);
+    for (i = 0; i < conf->bNumInterfaces ; i++) {
         if (!s->ifs[i].detached) {
             continue;
         }
         trace_usb_host_attach_kernel(s->bus_num, s->addr, i);
-        libusb_attach_kernel_driver(s->dh, i);
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            libusb_attach_kernel_driver(s->dh, i);
+        }
         s->ifs[i].detached = false;
     }
-    libusb_free_config_descriptor(conf);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_free_config_descriptor(conf);
+    }
 }
 
 static int usb_host_claim_interfaces(USBHostDevice *s, int configuration)
 {
     USBDevice *udev = USB_DEVICE(s);
-    struct libusb_config_descriptor *conf;
+    struct libusb_config_descriptor dummy_conf;
+    struct libusb_config_descriptor *conf = &dummy_conf;
     int rc, i;
 
     for (i = 0; i < USB_MAX_INTERFACES; i++) {
@@ -1065,7 +1134,7 @@ static int usb_host_claim_interfaces(USBHostDevice *s, int configuration)
 
     usb_host_detach_kernel(s);
 
-    rc = libusb_get_active_config_descriptor(s->dev, &conf);
+    REPLAY_DATA_INT(rc, libusb_get_active_config_descriptor(s->dev, &conf));
     if (rc != 0) {
         if (rc == LIBUSB_ERROR_NOT_FOUND) {
             /* address state - ignore */
@@ -1073,10 +1142,11 @@ static int usb_host_claim_interfaces(USBHostDevice *s, int configuration)
         }
         return USB_RET_STALL;
     }
+    REPLAY_DATA_VAR(conf->bNumInterfaces);
 
     for (i = 0; i < conf->bNumInterfaces; i++) {
         trace_usb_host_claim_interface(s->bus_num, s->addr, configuration, i);
-        rc = libusb_claim_interface(s->dh, i);
+        REPLAY_DATA_INT(rc, libusb_claim_interface(s->dh, i));
         usb_host_libusb_error("libusb_claim_interface", rc);
         if (rc != 0) {
             return USB_RET_STALL;
@@ -1087,7 +1157,9 @@ static int usb_host_claim_interfaces(USBHostDevice *s, int configuration)
     udev->ninterfaces   = conf->bNumInterfaces;
     udev->configuration = configuration;
 
-    libusb_free_config_descriptor(conf);
+    if (replay_mode != REPLAY_MODE_PLAY) {
+        libusb_free_config_descriptor(conf);
+    }
     return USB_RET_SUCCESS;
 }
 
@@ -1101,7 +1173,7 @@ static void usb_host_release_interfaces(USBHostDevice *s)
             continue;
         }
         trace_usb_host_release_interface(s->bus_num, s->addr, i);
-        rc = libusb_release_interface(s->dh, i);
+        REPLAY_DATA_INT(rc, libusb_release_interface(s->dh, i));
         usb_host_libusb_error("libusb_release_interface", rc);
         s->ifs[i].claimed = false;
     }
@@ -1122,7 +1194,7 @@ static void usb_host_set_config(USBHostDevice *s, int config, USBPacket *p)
     trace_usb_host_set_config(s->bus_num, s->addr, config);
 
     usb_host_release_interfaces(s);
-    rc = libusb_set_configuration(s->dh, config);
+    REPLAY_DATA_INT(rc, libusb_set_configuration(s->dh, config));
     if (rc != 0) {
         usb_host_libusb_error("libusb_set_configuration", rc);
         p->status = USB_RET_STALL;
@@ -1153,7 +1225,7 @@ static void usb_host_set_interface(USBHostDevice *s, int iface, int alt,
         return;
     }
 
-    rc = libusb_set_interface_alt_setting(s->dh, iface, alt);
+    REPLAY_DATA_INT(rc, libusb_set_interface_alt_setting(s->dh, iface, alt));
     if (rc != 0) {
         usb_host_libusb_error("libusb_set_interface_alt_setting", rc);
         p->status = USB_RET_STALL;
@@ -1177,7 +1249,7 @@ static void usb_host_handle_control(USBDevice *udev, USBPacket *p,
 
     trace_usb_host_req_control(s->bus_num, s->addr, p, request, value, index);
 
-    if (s->dh == NULL) {
+    if (!s->is_open) {
         p->status = USB_RET_NODEV;
         trace_usb_host_req_emulated(s->bus_num, s->addr, p, p->status);
         return;
@@ -1202,7 +1274,9 @@ static void usb_host_handle_control(USBDevice *udev, USBPacket *p,
     case EndpointOutRequest | USB_REQ_CLEAR_FEATURE:
         if (value == 0) { /* clear halt */
             int pid = (index & USB_DIR_IN) ? USB_TOKEN_IN : USB_TOKEN_OUT;
-            libusb_clear_halt(s->dh, index);
+            if (replay_mode != REPLAY_MODE_PLAY) {
+                libusb_clear_halt(s->dh, index);
+            }
             usb_ep_set_halted(udev, pid, index & 0x0f, 0);
             trace_usb_host_req_emulated(s->bus_num, s->addr, p, p->status);
             return;
@@ -1222,13 +1296,17 @@ static void usb_host_handle_control(USBDevice *udev, USBPacket *p,
     if (udev->speed == USB_SPEED_SUPER &&
         !((udev->port->speedmask & USB_SPEED_MASK_SUPER)) &&
         request == 0x8006 && value == 0x100 && index == 0) {
-        r->usb3ep0quirk = true;
+        usb3ep0quirk = true;
     }
 
+    /* call in REPLAY_MODE_PLAY too - this function just copies data */
     libusb_fill_control_transfer(r->xfer, s->dh, r->buffer,
-                                 usb_host_req_complete_ctrl, r,
-                                 CONTROL_TIMEOUT);
-    rc = libusb_submit_transfer(r->xfer);
+                                 replay_mode == REPLAY_MODE_NONE
+                                     ? usb_host_req_complete_ctrl
+                                     : replay_req_complete_ctrl,
+                                 r, CONTROL_TIMEOUT);
+
+    REPLAY_DATA_INT(rc, libusb_submit_transfer(r->xfer));
     if (rc != 0) {
         p->status = USB_RET_NODEV;
         trace_usb_host_req_complete(s->bus_num, s->addr, p,
@@ -1237,6 +1315,9 @@ static void usb_host_handle_control(USBDevice *udev, USBPacket *p,
             usb_host_nodev(s);
         }
         return;
+    } else {
+        replay_req_register_ctrl(r->xfer);
+        ++submitted_xfers;
     }
 
     p->status = USB_RET_ASYNC;
@@ -1258,7 +1339,7 @@ static void usb_host_handle_data(USBDevice *udev, USBPacket *p)
                             p->pid == USB_TOKEN_IN,
                             p->ep->nr, p->iov.size);
 
-    if (s->dh == NULL) {
+    if (!s->is_open) {
         p->status = USB_RET_NODEV;
         trace_usb_host_req_emulated(s->bus_num, s->addr, p, p->status);
         return;
@@ -1291,8 +1372,10 @@ static void usb_host_handle_data(USBDevice *udev, USBPacket *p)
         } else {
             libusb_fill_bulk_transfer(r->xfer, s->dh, ep,
                                       r->buffer, size,
-                                      usb_host_req_complete_data, r,
-                                      BULK_TIMEOUT);
+                                      replay_mode == REPLAY_MODE_NONE
+                                          ? usb_host_req_complete_data
+                                          : replay_req_complete_data,
+                                      r, BULK_TIMEOUT);
         }
         break;
     case USB_ENDPOINT_XFER_INT:
@@ -1303,8 +1386,10 @@ static void usb_host_handle_data(USBDevice *udev, USBPacket *p)
         ep = p->ep->nr | (r->in ? USB_DIR_IN : 0);
         libusb_fill_interrupt_transfer(r->xfer, s->dh, ep,
                                        r->buffer, p->iov.size,
-                                       usb_host_req_complete_data, r,
-                                       INTR_TIMEOUT);
+                                       replay_mode == REPLAY_MODE_NONE
+                                           ? usb_host_req_complete_data
+                                           : replay_req_complete_data,
+                                       r, INTR_TIMEOUT);
         break;
     case USB_ENDPOINT_XFER_ISOC:
         if (p->pid == USB_TOKEN_IN) {
@@ -1322,7 +1407,7 @@ static void usb_host_handle_data(USBDevice *udev, USBPacket *p)
         return;
     }
 
-    rc = libusb_submit_transfer(r->xfer);
+    REPLAY_DATA_INT(rc, libusb_submit_transfer(r->xfer));
     if (rc != 0) {
         p->status = USB_RET_NODEV;
         trace_usb_host_req_complete(s->bus_num, s->addr, p,
@@ -1331,6 +1416,9 @@ static void usb_host_handle_data(USBDevice *udev, USBPacket *p)
             usb_host_nodev(s);
         }
         return;
+    } else {
+        replay_req_register_data(r->xfer);
+        ++submitted_xfers;
     }
 
     p->status = USB_RET_ASYNC;
@@ -1350,7 +1438,7 @@ static void usb_host_handle_reset(USBDevice *udev)
 
     trace_usb_host_reset(s->bus_num, s->addr);
 
-    rc = libusb_reset_device(s->dh);
+    REPLAY_DATA_INT(rc, libusb_reset_device(s->dh));
     if (rc != 0) {
         usb_host_nodev(s);
     }
@@ -1425,7 +1513,7 @@ static void usb_host_post_load_bh(void *opaque)
     USBHostDevice *dev = opaque;
     USBDevice *udev = USB_DEVICE(dev);
 
-    if (dev->dh != NULL) {
+    if (dev->is_open) {
         usb_host_close(dev);
     }
     if (udev->attached) {
@@ -1445,6 +1533,40 @@ static int usb_host_post_load(void *opaque, int version_id)
     return 0;
 }
 
+static int usb_host_post_load_replay(void *opaque, int version_id)
+{
+    USBHostDevice *dev = opaque;
+
+    usb_host_free_xfers(dev);
+    usb_host_iso_free_all(dev);
+    submitted_xfers = 0;
+    return 0;
+}
+
+static void usb_host_pre_save_replay(void *opaque)
+{
+    USBHostDevice *dev = opaque;
+
+    if (!QTAILQ_EMPTY(&dev->requests)) {
+        fprintf(stderr, "Replay: Saving VM state "
+                        "with non-empty USB requests queue\n");
+        exit(1);
+    }
+
+    if (!QTAILQ_EMPTY(&dev->isorings)) {
+        fprintf(stderr, "Replay: Saving VM state "
+                        "with non-empty USB iso rings queue\n");
+        exit(1);
+    }
+
+    /* paranoidal checking */
+    if (submitted_xfers != 0) {
+        fprintf(stderr, "Replay: Saving VM state "
+                        "with non-empty USB iso rings queue\n");
+        exit(1);
+    }
+}
+
 static const VMStateDescription vmstate_usb_host = {
     .name = "usb-host",
     .version_id = 1,
@@ -1452,6 +1574,52 @@ static const VMStateDescription vmstate_usb_host = {
     .post_load = usb_host_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_USB_DEVICE(parent_obj, USBHostDevice),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static const VMStateDescription vmstate_usb_host_interface = {
+    .name = "usb-host-interface",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_BOOL(detached, USBHostInterface),
+        VMSTATE_BOOL(claimed, USBHostInterface),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static const VMStateDescription vmstate_usb_host_replay = {
+    .name = "usb-host",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .post_load = usb_host_post_load_replay,
+    .pre_save = usb_host_pre_save_replay,
+    .fields = (VMStateField[]) {
+        VMSTATE_USB_DEVICE(parent_obj, USBHostDevice),
+        VMSTATE_INT32(seen, USBHostDevice),
+        VMSTATE_INT32(errcount, USBHostDevice),
+        VMSTATE_INT32(bus_num, USBHostDevice),
+        VMSTATE_INT32(addr, USBHostDevice),
+        VMSTATE_INT32(bus_num, USBHostDevice),
+        VMSTATE_BOOL(is_open, USBHostDevice),
+        VMSTATE_CHAR_ARRAY(port, USBHostDevice, 16),
+        VMSTATE_UINT8(ddesc.bLength, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bDescriptorType, USBHostDevice),
+        VMSTATE_UINT16(ddesc.bcdUSB, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bDeviceClass, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bDeviceSubClass, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bDeviceProtocol, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bMaxPacketSize0, USBHostDevice),
+        VMSTATE_UINT16(ddesc.idVendor, USBHostDevice),
+        VMSTATE_UINT16(ddesc.idProduct, USBHostDevice),
+        VMSTATE_UINT16(ddesc.bcdDevice, USBHostDevice),
+        VMSTATE_UINT8(ddesc.iManufacturer, USBHostDevice),
+        VMSTATE_UINT8(ddesc.iProduct, USBHostDevice),
+        VMSTATE_UINT8(ddesc.iSerialNumber, USBHostDevice),
+        VMSTATE_UINT8(ddesc.bNumConfigurations, USBHostDevice),
+        VMSTATE_STRUCT_ARRAY(ifs, USBHostDevice, USB_MAX_INTERFACES, 1,
+                             vmstate_usb_host_interface, USBHostInterface),
         VMSTATE_END_OF_LIST()
     }
 };
@@ -1487,7 +1655,11 @@ static void usb_host_class_initfn(ObjectClass *klass, void *data)
     uc->flush_ep_queue = usb_host_flush_ep_queue;
     uc->alloc_streams  = usb_host_alloc_streams;
     uc->free_streams   = usb_host_free_streams;
-    dc->vmsd = &vmstate_usb_host;
+    if (replay_mode == REPLAY_MODE_NONE) {
+        dc->vmsd = &vmstate_usb_host;
+    } else {
+        dc->vmsd = &vmstate_usb_host_replay;
+    }
     dc->props = usb_host_dev_properties;
     set_bit(DEVICE_CATEGORY_BRIDGE, dc->categories);
 }
@@ -1508,7 +1680,6 @@ type_init(usb_host_register_types)
 
 /* ------------------------------------------------------------------------ */
 
-static QEMUTimer *usb_auto_timer;
 static VMChangeStateEntry *usb_vmstate;
 
 static void usb_host_vm_state(void *unused, int running, RunState state)
@@ -1525,70 +1696,79 @@ static void usb_host_auto_check(void *unused)
     libusb_device **devs = NULL;
     struct libusb_device_descriptor ddesc;
     int unconnected = 0;
-    int i, n;
+    int i, n, tmp;
 
     if (usb_host_init() != 0) {
         return;
     }
 
     if (runstate_is_running()) {
-        n = libusb_get_device_list(ctx, &devs);
+        REPLAY_DATA_INT(n, libusb_get_device_list(ctx, &devs));
         for (i = 0; i < n; i++) {
-            if (libusb_get_device_descriptor(devs[i], &ddesc) != 0) {
+            if (REPLAY_DATA_INT(tmp, libusb_get_device_descriptor(devs[i],
+                                         &ddesc)) != 0) {
                 continue;
             }
-            if (ddesc.bDeviceClass == LIBUSB_CLASS_HUB) {
+            if (REPLAY_DATA_INT(tmp, ddesc.bDeviceClass) == LIBUSB_CLASS_HUB) {
                 continue;
             }
             QTAILQ_FOREACH(s, &hostdevs, next) {
                 f = &s->match;
                 if (f->bus_num > 0 &&
-                    f->bus_num != libusb_get_bus_number(devs[i])) {
+                    f->bus_num != REPLAY_DATA_INT(tmp, libusb_get_bus_number(
+                                                           devs[i]))) {
                     continue;
                 }
                 if (f->addr > 0 &&
-                    f->addr != libusb_get_device_address(devs[i])) {
+                    f->addr != REPLAY_DATA_INT(tmp, libusb_get_device_address(
+                                                        devs[i]))) {
                     continue;
                 }
                 if (f->port != NULL) {
                     char port[16] = "-";
-                    usb_host_get_port(devs[i], port, sizeof(port));
+                    if (replay_mode != REPLAY_MODE_PLAY) {
+                        usb_host_get_port(devs[i], port, sizeof(port));
+                    }
+                    replay_data_buffer((unsigned char *)port, sizeof(port));
                     if (strcmp(f->port, port) != 0) {
                         continue;
                     }
                 }
                 if (f->vendor_id > 0 &&
-                    f->vendor_id != ddesc.idVendor) {
+                    f->vendor_id != REPLAY_DATA_INT(tmp, ddesc.idVendor)) {
                     continue;
                 }
                 if (f->product_id > 0 &&
-                    f->product_id != ddesc.idProduct) {
+                    f->product_id != REPLAY_DATA_INT(tmp, ddesc.idProduct)) {
                     continue;
                 }
-
                 /* We got a match */
                 s->seen++;
                 if (s->errcount >= 3) {
                     continue;
                 }
-                if (s->dh != NULL) {
+                if (s->is_open) {
                     continue;
                 }
-                if (usb_host_open(s, devs[i]) < 0) {
+                if (usb_host_open(s, replay_mode == REPLAY_MODE_PLAY
+                                     ? (libusb_device *)0xbad
+                                     : devs[i]) < 0) {
                     s->errcount++;
                     continue;
                 }
                 break;
             }
         }
-        libusb_free_device_list(devs, 1);
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            libusb_free_device_list(devs, 1);
+        }
 
         QTAILQ_FOREACH(s, &hostdevs, next) {
-            if (s->dh == NULL) {
+            if (!s->is_open) {
                 unconnected++;
             }
             if (s->seen == 0) {
-                if (s->dh) {
+                if (s->is_open) {
                     usb_host_close(s);
                 }
                 s->errcount = 0;
@@ -1608,17 +1788,12 @@ static void usb_host_auto_check(void *unused)
 #endif
     }
 
-    if (!usb_vmstate) {
+    if (!usb_vmstate && replay_mode == REPLAY_MODE_NONE) {
         usb_vmstate = qemu_add_vm_change_state_handler(usb_host_vm_state, NULL);
     }
-    if (!usb_auto_timer) {
-        usb_auto_timer = timer_new_ms(QEMU_CLOCK_REALTIME, usb_host_auto_check, NULL);
-        if (!usb_auto_timer) {
-            return;
-        }
-        trace_usb_host_auto_scan_enabled();
-    }
-    timer_mod(usb_auto_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 2000);
+
+    timer_mod(usb_auto_timer.timer,
+              qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL) + 2000);
 }
 
 void usb_host_info(Monitor *mon, const QDict *qdict)

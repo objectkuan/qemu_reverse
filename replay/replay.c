@@ -101,6 +101,16 @@ static void replay_savevm(void *opaque)
     char name[128];
     uint64_t offset;
 
+#ifdef CONFIG_USB_LIBUSB
+    if (replay_usb_has_xfers()) {
+        /* Retry of saving VM state, when USB host controller is not ready.
+           We cannot save or interrupt non-finished transfers, so
+           just wait for finishing them later. */
+        timer_mod(save_timer, qemu_clock_get_ms(QEMU_CLOCK_REALTIME) + 1);
+        return;
+    }
+#endif
+
     offset = ftello64(replay_file);
 
     replay_save_instructions();
@@ -612,5 +622,24 @@ void replay_data_int(int *data)
         replay_save_instructions();
         replay_put_event(EVENT_DATA_INT);
         replay_put_dword(*data);
+    }
+}
+
+void replay_data_buffer(unsigned char *data, size_t size)
+{
+    if (replay_file && replay_mode == REPLAY_MODE_PLAY) {
+        size_t read_size = 0;
+        skip_async_events_until(EVENT_DATA_BUFFER);
+        replay_get_array(data, &read_size);
+        replay_check_error();
+        if (read_size != size) {
+            fprintf(stderr, "Replay: read non-matching size of the buffer\n");
+            exit(1);
+        }
+        replay_has_unread_data = 0;
+    } else if (replay_file && replay_mode == REPLAY_MODE_RECORD) {
+        replay_save_instructions();
+        replay_put_event(EVENT_DATA_BUFFER);
+        replay_put_array(data, size);
     }
 }
