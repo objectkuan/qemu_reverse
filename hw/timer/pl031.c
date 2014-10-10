@@ -230,12 +230,13 @@ static int pl031_post_load(void *opaque, int version_id)
 
 static const VMStateDescription vmstate_pl031 = {
     .name = "pl031",
-    .version_id = 1,
+    .version_id = 2,
     .minimum_version_id = 1,
     .pre_save = pl031_pre_save,
     .post_load = pl031_post_load,
     .fields = (VMStateField[]) {
         VMSTATE_UINT32(tick_offset_vmstate, PL031State),
+        VMSTATE_TIMER_V(timer, PL031State, 2),
         VMSTATE_UINT32(mr, PL031State),
         VMSTATE_UINT32(lr, PL031State),
         VMSTATE_UINT32(cr, PL031State),
