@@ -295,6 +295,9 @@ void replay_instruction(int process_events)
                         first_cpu->exception_index = EXCP_DEBUG;
                         monitor_printf(default_mon, "Execution has stopped.\n");
                         vm_stop(EXCP_DEBUG);
+                    } else if (play_submode == REPLAY_SUBMODE_REVERSE) {
+                        cpu_handle_debug_exception(first_cpu->env_ptr);
+                        return;
                     }
                     /* for breaking execution loop */
                     cpu_exit(first_cpu);

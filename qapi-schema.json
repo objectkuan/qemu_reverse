@@ -3522,7 +3522,7 @@
 # Since: 2.2
 ##
 { 'enum': 'ReplaySubmode',
-  'data': [ 'unknown', 'normal' ] }
+  'data': [ 'unknown', 'normal', 'reverse' ] }
 
 ##
 # @ReplayInfo:

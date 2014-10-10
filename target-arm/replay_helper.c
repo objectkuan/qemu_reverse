@@ -31,3 +31,8 @@ uint32_t helper_replay_instruction(CPUARMState *env)
     replay_instruction(timer);
     return timer;
 }
+
+void helper_reverse_breakpoint(void)
+{
+    replay_reverse_breakpoint();
+}

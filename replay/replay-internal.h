@@ -88,7 +88,11 @@ struct SavedStateInfo {
 };
 /*! Reference to the saved state */
 typedef struct SavedStateInfo SavedStateInfo;
+/* List of the saved states information */
+extern SavedStateInfo *saved_states;
 
+/*! Stores current submode for PLAY mode */
+extern ReplaySubmode play_submode;
 extern volatile unsigned int replay_data_kind;
 extern volatile unsigned int replay_has_unread_data;
 

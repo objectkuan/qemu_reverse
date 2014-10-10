@@ -40,7 +40,6 @@
 #include "cpu.h"
 #include "qemu/sockets.h"
 #include "sysemu/kvm.h"
-#include "replay/replay.h"
 
 static inline int target_memory_rw_debug(CPUState *cpu, target_ulong addr,
                                          uint8_t *buf, int len, bool is_write)
@@ -313,19 +312,6 @@ typedef struct GDBState {
  * make single stepping like an ICE HW step.
  */
 static int sstep_flags = SSTEP_ENABLE|SSTEP_NOIRQ|SSTEP_NOTIMER;
-
-/*! Retrieves flags for single step mode. */
-static int get_sstep_flags(void)
-{
-    /* In replay mode all events written into the log should be replayed.
-     * That is why NOIRQ flag is removed in this mode.
-     */
-    if (replay_mode != REPLAY_MODE_NONE) {
-        return SSTEP_ENABLE;
-    } else {
-        return sstep_flags;
-    }
-}
 
 static GDBState *gdbserver_state;
 
@@ -849,7 +835,7 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
                     s->c_cpu = cpu;
                 }
                 if (res == 's') {
-                    cpu_single_step(s->c_cpu, get_sstep_flags());
+                    cpu_single_step(s->c_cpu, sstep_flags);
                 }
                 s->signal = res_signal;
                 gdb_continue(s);
@@ -951,6 +937,8 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
         if (target_memory_rw_debug(s->g_cpu, addr, mem_buf, len,
                                    true) != 0) {
             put_packet(s, "E14");
+        } else {
+            put_packet(s, "OK");
         }
         break;
     case 'p':
@@ -1047,23 +1035,18 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
             put_packet(s, buf);
             break;
         } else if (strncmp(p,"qemu.sstep",10) == 0) {
-            if (replay_mode == REPLAY_MODE_NONE) {
-                /* Display or change the sstep_flags */
-                p += 10;
-                if (*p != '=') {
-                    /* Display current setting */
-                    snprintf(buf, sizeof(buf), "0x%x", sstep_flags);
-                    put_packet(s, buf);
-                    break;
-                }
-                p++;
-                type = strtoul(p, (char **)&p, 16);
-                sstep_flags = type;
-                put_packet(s, "OK");
-            } else {
-                /* Cannot change sstep flags in replay mode */
-                put_packet(s, "E22");
+            /* Display or change the sstep_flags */
+            p += 10;
+            if (*p != '=') {
+                /* Display current setting */
+                snprintf(buf, sizeof(buf), "0x%x", sstep_flags);
+                put_packet(s, buf);
+                break;
             }
+            p++;
+            type = strtoul(p, (char **)&p, 16);
+            sstep_flags = type;
+            put_packet(s, "OK");
             break;
         } else if (strcmp(p,"C") == 0) {
             /* "Current thread" remains vague in the spec, so always return
@@ -1130,9 +1113,6 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
             if (cc->gdb_core_xml_file != NULL) {
                 pstrcat(buf, sizeof(buf), ";qXfer:features:read+");
             }
-            if (replay_mode == REPLAY_MODE_PLAY) {
-                pstrcat(buf, sizeof(buf), ";ReverseStep+;ReverseContinue+");
-            }
             put_packet(s, buf);
             break;
         }
@@ -1194,13 +1174,8 @@ static int gdb_handle_packet(GDBState *s, const char *line_buf)
 
 void gdb_set_stop_cpu(CPUState *cpu)
 {
-    /* DEBUG interrupts are also used by replay module.
-       In some cases gdb is not connected, when replay is used.
-       This check is added to prevent faults in such cases. */
-    if (gdbserver_state) {
-        gdbserver_state->c_cpu = cpu;
-        gdbserver_state->g_cpu = cpu;
-    }
+    gdbserver_state->c_cpu = cpu;
+    gdbserver_state->g_cpu = cpu;
 }
 
 #ifndef CONFIG_USER_ONLY

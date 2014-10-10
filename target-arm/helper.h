@@ -531,3 +531,4 @@ DEF_HELPER_FLAGS_2(neon_pmull_64_hi, TCG_CALL_NO_RWG_SE, i64, i64, i64)
 #endif
 
 DEF_HELPER_1(replay_instruction, i32, env)
+DEF_HELPER_0(reverse_breakpoint, void)

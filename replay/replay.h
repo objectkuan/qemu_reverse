@@ -184,6 +184,17 @@ void replay_req_complete_iso(struct libusb_transfer *xfer);
     to be completed by reading it from the log */
 void replay_req_register_iso(struct libusb_transfer *xfer);
 
+/* Reverse debugging */
+
+/*! Initializes reverse continue execution.
+    Called by debugger module. */
+void replay_reverse_continue(void);
+/*! Initializes reverse step execution.
+    Called by debugger module. */
+void replay_reverse_step(void);
+/* Called instead of invoking breakpoint in reverse continue mode. */
+void replay_reverse_breakpoint(void);
+
 /* Other data */
 
 /*! Writes or reads integer value to/from replay log. */

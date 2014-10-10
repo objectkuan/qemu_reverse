@@ -11021,11 +11021,15 @@ static inline void gen_intermediate_code_internal(ARMCPU *cpu,
         if (unlikely(!QTAILQ_EMPTY(&cs->breakpoints))) {
             QTAILQ_FOREACH(bp, &cs->breakpoints, entry) {
                 if (bp->pc == dc->pc) {
-                    gen_exception_internal_insn(dc, 0, EXCP_DEBUG);
-                    /* Advance PC so that clearing the breakpoint will
-                       invalidate this TB.  */
-                    dc->pc += 2;
-                    goto done_generating;
+                    if (replay_get_play_submode() == REPLAY_SUBMODE_REVERSE) {
+                        gen_helper_reverse_breakpoint();
+                    } else {
+                        gen_exception_internal_insn(dc, 0, EXCP_DEBUG);
+                        /* Advance PC so that clearing the breakpoint will
+                           invalidate this TB.  */
+                        dc->pc += 2;
+                        goto done_generating;
+                    }
                 }
             }
         }

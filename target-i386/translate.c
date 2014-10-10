@@ -2536,10 +2536,14 @@ static void gen_interrupt(DisasContext *s, int intno,
 
 static void gen_debug(DisasContext *s, target_ulong cur_eip)
 {
-    gen_update_cc_op(s);
-    gen_jmp_im(cur_eip);
-    gen_helper_debug(cpu_env);
-    s->is_jmp = DISAS_TB_JUMP;
+    if (replay_get_play_submode() == REPLAY_SUBMODE_REVERSE) {
+        gen_helper_reverse_breakpoint();
+    } else {
+        gen_update_cc_op(s);
+        gen_jmp_im(cur_eip);
+        gen_helper_debug(cpu_env);
+        s->is_jmp = DISAS_TB_JUMP;
+    }
 }
 
 /* generate a generic end of block. Trace exception is also generated

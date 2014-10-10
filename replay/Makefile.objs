@@ -9,3 +9,4 @@ obj-y += replay-audio.o
 obj-y += replay-char.o
 obj-y += replay-usb.o
 obj-y += replay-qmp.o
+obj-y += replay-debug.o

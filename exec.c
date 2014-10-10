@@ -1612,6 +1612,13 @@ static void check_watchpoint(int offset, int len_mask, int flags)
     QTAILQ_FOREACH(wp, &cpu->watchpoints, entry) {
         if ((vaddr == (wp->vaddr & len_mask) ||
              (vaddr & wp->len_mask) == wp->vaddr) && (wp->flags & flags)) {
+            /* Don't actually process a watchpoint, it will be processed,
+               when reverse execution stops. */
+            if (replay_get_play_submode() == REPLAY_SUBMODE_REVERSE) {
+                wp->flags &= ~BP_WATCHPOINT_HIT;
+                replay_reverse_breakpoint();
+                continue;
+            }
             wp->flags |= BP_WATCHPOINT_HIT;
             if (!cpu->watchpoint_hit) {
                 cpu->watchpoint_hit = wp;
