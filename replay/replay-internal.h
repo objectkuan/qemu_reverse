@@ -49,7 +49,9 @@
 
 #define REPLAY_ASYNC_EVENT_BH          0
 #define REPLAY_ASYNC_EVENT_THREAD      1
-#define REPLAY_ASYNC_COUNT             2
+#define REPLAY_ASYNC_EVENT_INPUT       2
+#define REPLAY_ASYNC_EVENT_INPUT_SYNC  3
+#define REPLAY_ASYNC_COUNT             4
 
 typedef struct ReplayState {
     /*! Cached clock values. */
@@ -140,5 +142,12 @@ void replay_save_events(int opt);
 void replay_read_events(int opt);
 /*! Adds specified async event to the queue */
 void replay_add_event(int event_id, void *opaque);
+
+/* Input events */
+
+/*! Saves input event to the log */
+void replay_save_input_event(InputEvent *evt);
+/*! Reads input event from the log */
+InputEvent *replay_read_input_event(void);
 
 #endif

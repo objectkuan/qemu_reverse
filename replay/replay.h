@@ -18,6 +18,7 @@
 #include "qapi-types.h"
 
 struct QemuOpts;
+struct InputEvent;
 
 /* replay clock kinds */
 /* rdtsc */
@@ -105,6 +106,10 @@ void replay_disable_events(void);
 void replay_add_bh_event(void *bh, uint64_t id);
 /*! Adds thread event to the queue */
 void replay_add_thread_event(void *pool, void *req, uint64_t id);
+/*! Adds input event to the queue */
+void replay_add_input_event(struct InputEvent *event);
+/*! Adds input sync event to the queue */
+void replay_add_input_sync_event(void);
 
 /* icount-based virtual clock */
 

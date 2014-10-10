@@ -12,6 +12,7 @@
 #include "replay.h"
 #include "replay-internal.h"
 #include "block/thread-pool.h"
+#include "ui/input.h"
 
 typedef struct Event {
     int event_kind;
@@ -41,6 +42,16 @@ static void replay_run_event(Event *event)
         break;
     case REPLAY_ASYNC_EVENT_THREAD:
         thread_pool_work((ThreadPool *)event->opaque, event->opaque2);
+        break;
+    case REPLAY_ASYNC_EVENT_INPUT:
+        qemu_input_event_send_impl(NULL, (InputEvent *)event->opaque);
+        /* Using local variables, when replaying. Do not free them. */
+        if (replay_mode == REPLAY_MODE_RECORD) {
+            qapi_free_InputEvent((InputEvent *)event->opaque);
+        }
+        break;
+    case REPLAY_ASYNC_EVENT_INPUT_SYNC:
+        qemu_input_event_sync_impl();
         break;
     default:
         fprintf(stderr, "Replay: invalid async event ID (%d) in the queue\n",
@@ -135,6 +146,16 @@ void replay_add_thread_event(void *opaque, void *opaque2, uint64_t id)
     replay_add_event_internal(REPLAY_ASYNC_EVENT_THREAD, opaque, opaque2, id);
 }
 
+void replay_add_input_event(struct InputEvent *event)
+{
+    replay_add_event_internal(REPLAY_ASYNC_EVENT_INPUT, event, NULL, 0);
+}
+
+void replay_add_input_sync_event(void)
+{
+    replay_add_event_internal(REPLAY_ASYNC_EVENT_INPUT_SYNC, NULL, NULL, 0);
+}
+
 void replay_save_events(int opt)
 {
     qemu_mutex_lock(&lock);
@@ -155,6 +176,9 @@ void replay_save_events(int opt)
             case REPLAY_ASYNC_EVENT_BH:
             case REPLAY_ASYNC_EVENT_THREAD:
                 replay_put_qword(event->id);
+                break;
+            case REPLAY_ASYNC_EVENT_INPUT:
+                replay_save_input_event(event->opaque);
                 break;
             }
         }
@@ -185,6 +209,7 @@ void replay_read_events(int opt)
             break;
         }
         /* Execute some events without searching them in the queue */
+        Event e;
         switch (read_event_kind) {
         case REPLAY_ASYNC_EVENT_BH:
         case REPLAY_ASYNC_EVENT_THREAD:
@@ -192,6 +217,29 @@ void replay_read_events(int opt)
                 read_id = replay_get_qword();
             }
             break;
+        case REPLAY_ASYNC_EVENT_INPUT:
+            e.event_kind = read_event_kind;
+            e.opaque = replay_read_input_event();
+
+            replay_run_event(&e);
+
+            replay_has_unread_data = 0;
+            read_event_kind = -1;
+            read_opt = -1;
+            replay_fetch_data_kind();
+            /* continue with the next event */
+            continue;
+        case REPLAY_ASYNC_EVENT_INPUT_SYNC:
+            e.event_kind = read_event_kind;
+            e.opaque = 0;
+            replay_run_event(&e);
+
+            replay_has_unread_data = 0;
+            read_event_kind = -1;
+            read_opt = -1;
+            replay_fetch_data_kind();
+            /* continue with the next event */
+            continue;
         default:
             fprintf(stderr, "Unknown ID %d of replay event\n", read_event_kind);
             exit(1);
