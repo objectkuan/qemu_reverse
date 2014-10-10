@@ -30,6 +30,7 @@
 #include "qemu-common.h"
 #include "qemu/option.h"
 #include "qemu/main-loop.h"
+#include "replay/replay.h"
 
 typedef struct VDEState {
     NetClientState nc;
@@ -44,7 +45,11 @@ static void vde_to_qemu(void *opaque)
 
     size = vde_recv(s->vde, (char *)buf, sizeof(buf), 0);
     if (size > 0) {
-        qemu_send_packet(&s->nc, buf, size);
+        if (replay_mode == REPLAY_SAVE) {
+            replay_save_net_packet(&s->nc, buf, size);
+        } else {
+            qemu_send_packet(&s->nc, buf, size);
+        }
     }
 }
 
@@ -105,6 +110,13 @@ static int net_vde_init(NetClientState *peer, const char *model,
     s->vde = vde;
 
     qemu_set_fd_handler(vde_datafd(s->vde), vde_to_qemu, NULL, s);
+
+    if (replay_mode == REPLAY_PLAY) {
+        fprintf(stderr, "-net vde is not permitted in replay mode\n");
+        exit(1);
+    } else {
+        replay_add_network_client(nc);
+    }
 
     return 0;
 }

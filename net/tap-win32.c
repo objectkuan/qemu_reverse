@@ -34,6 +34,7 @@
 #include "net/tap.h"            /* tap_has_ufo, ... */
 #include "sysemu/sysemu.h"
 #include "qemu/error-report.h"
+#include "replay/replay.h"
 #include <stdio.h>
 #include <windows.h>
 #include <winioctl.h>
@@ -665,7 +666,11 @@ static void tap_win32_send(void *opaque)
 
     size = tap_win32_read(s->handle, &buf, max_size);
     if (size > 0) {
-        qemu_send_packet(&s->nc, buf, size);
+        if (replay_mode == REPLAY_MODE_RECORD) {
+            replay_save_net_packet(&s->nc, buf, size);
+        } else {
+            qemu_send_packet(&s->nc, buf, size);
+        }
         tap_win32_free_buffer(s->handle, buf);
     }
 }
@@ -748,6 +753,13 @@ static int tap_win32_init(NetClientState *peer, const char *model,
     s->handle = handle;
 
     qemu_add_wait_object(s->handle->tap_semaphore, tap_win32_send, s);
+
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        fprintf(stderr, "-net tap is not permitted in replay mode\n");
+        exit(1);
+    } else {
+        replay_add_network_client(nc);
+    }
 
     return 0;
 }

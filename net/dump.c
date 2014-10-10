@@ -28,6 +28,7 @@
 #include "qemu/log.h"
 #include "qemu/timer.h"
 #include "hub.h"
+#include "replay/replay.h"
 
 typedef struct DumpState {
     NetClientState nc;
@@ -157,6 +158,11 @@ int net_init_dump(const NetClientOptions *opts, const char *name,
     dump = opts->dump;
 
     assert(peer);
+
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        fprintf(stderr, "-net dump is not permitted in replay mode\n");
+        exit(1);
+    }
 
     if (dump->has_file) {
         file = dump->file;

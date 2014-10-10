@@ -51,7 +51,8 @@
 #define REPLAY_ASYNC_EVENT_THREAD      1
 #define REPLAY_ASYNC_EVENT_INPUT       2
 #define REPLAY_ASYNC_EVENT_INPUT_SYNC  3
-#define REPLAY_ASYNC_COUNT             4
+#define REPLAY_ASYNC_EVENT_NETWORK     4
+#define REPLAY_ASYNC_COUNT             5
 
 typedef struct ReplayState {
     /*! Cached clock values. */
@@ -149,5 +150,23 @@ void replay_add_event(int event_id, void *opaque);
 void replay_save_input_event(InputEvent *evt);
 /*! Reads input event from the log */
 InputEvent *replay_read_input_event(void);
+
+/* Network events */
+
+/*! Initializes network data structures. */
+void replay_net_init(void);
+/*! Cleans up network data structures. */
+void replay_net_free(void);
+/*! Reads packets offsets array from the log. */
+void replay_net_read_packets_data(void);
+/*! Writes packets offsets array to the log. */
+void replay_net_write_packets_data(void);
+/*! Saves network packet into the log. */
+void replay_net_save_packet(void *opaque);
+/*! Reads network packet from the log. */
+void *replay_net_read_packet(void);
+/*! Called to send packet that was read or received from external input
+    to the net queue. */
+void replay_net_send_packet(void *opaque);
 
 #endif

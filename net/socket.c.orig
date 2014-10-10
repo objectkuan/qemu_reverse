@@ -32,7 +32,6 @@
 #include "qemu/sockets.h"
 #include "qemu/iov.h"
 #include "qemu/main-loop.h"
-#include "replay/replay.h"
 
 typedef struct NetSocketState {
     NetClientState nc;
@@ -212,11 +211,7 @@ static void net_socket_send(void *opaque)
             buf += l;
             size -= l;
             if (s->index >= s->packet_len) {
-                if (replay_mode == REPLAY_MODE_RECORD) {
-                    replay_save_net_packet(&s->nc, s->buf, s->packet_len);
-                } else {
-                    qemu_send_packet(&s->nc, s->buf, s->packet_len);
-                }
+                qemu_send_packet(&s->nc, s->buf, s->packet_len);
                 s->index = 0;
                 s->state = 0;
             }
@@ -239,11 +234,7 @@ static void net_socket_send_dgram(void *opaque)
         net_socket_write_poll(s, false);
         return;
     }
-    if (replay_mode == REPLAY_MODE_RECORD) {
-        replay_save_net_packet(&s->nc, s->buf, size);
-    } else {
-        qemu_send_packet(&s->nc, s->buf, size);
-    }
+    qemu_send_packet(&s->nc, s->buf, size);
 }
 
 static int net_socket_mcast_create(struct sockaddr_in *mcastaddr, struct in_addr *localaddr)

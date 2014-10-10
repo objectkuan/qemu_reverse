@@ -462,6 +462,8 @@ static void replay_enable(const char *fname, int mode)
     replay_state.current_step = 0;
     current_saved_state = 0;
 
+    replay_net_init();
+
     /* skip file header for RECORD and check it for PLAY */
     if (replay_mode == REPLAY_MODE_RECORD) {
         fseek(replay_file, HEADER_SIZE, SEEK_SET);
@@ -482,6 +484,7 @@ static void replay_enable(const char *fname, int mode)
             fread(saved_states, sizeof(SavedStateInfo), saved_states_count,
                   replay_file);
         }
+        replay_net_read_packets_data();
         /* go to the beginning */
         fseek(replay_file, 12, SEEK_SET);
     }
@@ -565,6 +568,7 @@ void replay_finish(void)
                 fwrite(saved_states, sizeof(SavedStateInfo),
                        saved_states_count, replay_file);
             }
+            replay_net_write_packets_data();
 
             /* write header */
             fseek(replay_file, 0, SEEK_SET);
@@ -593,5 +597,6 @@ void replay_finish(void)
         replay_image_suffix = NULL;
     }
 
+    replay_net_free();
     replay_finish_events();
 }

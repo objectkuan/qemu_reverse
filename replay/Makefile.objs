@@ -4,3 +4,4 @@ obj-y += replay-events.o
 obj-y += replay-time.o
 obj-y += replay-icount.o
 obj-y += replay-input.o
+obj-y += replay-net.o

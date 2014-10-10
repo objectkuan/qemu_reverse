@@ -39,6 +39,7 @@
 #include "sysemu/sysemu.h"
 #include "qemu-common.h"
 #include "qemu/error-report.h"
+#include "replay/replay.h"
 
 #include "net/tap.h"
 
@@ -203,11 +204,18 @@ static void tap_send(void *opaque)
             size -= s->host_vnet_hdr_len;
         }
 
-        size = qemu_send_packet_async(&s->nc, buf, size, tap_send_completed);
-        if (size == 0) {
-            tap_read_poll(s, false);
+        if (replay_mode == REPLAY_MODE_RECORD) {
+            replay_save_net_packet(&s->nc, buf, size);
             break;
-        } else if (size < 0) {
+        } else {
+            size = qemu_send_packet_async(&s->nc, buf, size,
+                                          tap_send_completed);
+            if (size == 0) {
+                tap_read_poll(s, false);
+                break;
+            } else if (size < 0) {
+                break;
+            }
             break;
         }
     }
@@ -353,6 +361,14 @@ static TAPState *net_tap_fd_init(NetClientState *peer,
     }
     tap_read_poll(s, true);
     s->vhost_net = NULL;
+
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        fprintf(stderr, "-net tap is not permitted in replay mode\n");
+        exit(1);
+    } else {
+        replay_add_network_client(nc);
+    }
+
     return s;
 }
 

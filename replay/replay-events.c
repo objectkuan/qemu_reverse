@@ -53,6 +53,9 @@ static void replay_run_event(Event *event)
     case REPLAY_ASYNC_EVENT_INPUT_SYNC:
         qemu_input_event_sync_impl();
         break;
+    case REPLAY_ASYNC_EVENT_NETWORK:
+        replay_net_send_packet(event->opaque);
+        break;
     default:
         fprintf(stderr, "Replay: invalid async event ID (%d) in the queue\n",
                 event->event_kind);
@@ -180,6 +183,9 @@ void replay_save_events(int opt)
             case REPLAY_ASYNC_EVENT_INPUT:
                 replay_save_input_event(event->opaque);
                 break;
+            case REPLAY_ASYNC_EVENT_NETWORK:
+                replay_net_save_packet(event->opaque);
+                break;
             }
         }
 
@@ -232,6 +238,17 @@ void replay_read_events(int opt)
         case REPLAY_ASYNC_EVENT_INPUT_SYNC:
             e.event_kind = read_event_kind;
             e.opaque = 0;
+            replay_run_event(&e);
+
+            replay_has_unread_data = 0;
+            read_event_kind = -1;
+            read_opt = -1;
+            replay_fetch_data_kind();
+            /* continue with the next event */
+            continue;
+        case REPLAY_ASYNC_EVENT_NETWORK:
+            e.opaque = replay_net_read_packet();
+            e.event_kind = read_event_kind;
             replay_run_event(&e);
 
             replay_has_unread_data = 0;

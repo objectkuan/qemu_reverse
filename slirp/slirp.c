@@ -26,6 +26,7 @@
 #include "sysemu/char.h"
 #include "slirp.h"
 #include "hw/hw.h"
+#include "replay/replay.h"
 
 /* host loopback address */
 struct in_addr loopback_addr;
@@ -234,8 +235,12 @@ Slirp *slirp_init(int restricted, struct in_addr vnetwork,
 
     slirp->opaque = opaque;
 
-    register_savevm(NULL, "slirp", 0, 3,
-                    slirp_state_save, slirp_state_load, slirp);
+    /* Do not save slirp state in record mode, because slirp device
+       will not be created in replay mode */
+    if (replay_mode == REPLAY_MODE_NONE) {
+        register_savevm(NULL, "slirp", 0, 3,
+                        slirp_state_save, slirp_state_load, slirp);
+    }
 
     QTAILQ_INSERT_TAIL(&slirp_instances, slirp, entry);
 

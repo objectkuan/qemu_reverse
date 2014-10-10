@@ -809,6 +809,7 @@ static int (* const net_client_init_fun[NET_CLIENT_OPTIONS_KIND_MAX])(
 #ifdef CONFIG_L2TPV3
         [NET_CLIENT_OPTIONS_KIND_L2TPV3]    = net_init_l2tpv3,
 #endif
+        [NET_CLIENT_OPTIONS_KIND_REPLAY]    = net_init_replay,
 };
 
 
@@ -1264,7 +1265,11 @@ int net_init_clients(void)
         /* if no clients, we use a default config */
         qemu_opts_set(net, NULL, "type", "nic");
 #ifdef CONFIG_SLIRP
-        qemu_opts_set(net, NULL, "type", "user");
+        if (replay_mode != REPLAY_MODE_PLAY) {
+            qemu_opts_set(net, NULL, "type", "user");
+        } else {
+            qemu_opts_set(net, NULL, "type", "replay");
+        }
 #endif
     }
 

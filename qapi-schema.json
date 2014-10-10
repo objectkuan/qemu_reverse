@@ -2211,6 +2211,16 @@
     '*vhostforce':    'bool' } }
 
 ##
+# @NetdevReplayOptions
+#
+# Reads network traffic from the log in replay mode.
+#
+# Since: 2.2
+##
+{ 'type': 'NetdevReplayOptions',
+  'data': { } }
+
+##
 # @NetClientOptions
 #
 # A discriminated record of network device traits.
@@ -2233,7 +2243,8 @@
     'bridge':   'NetdevBridgeOptions',
     'hubport':  'NetdevHubPortOptions',
     'netmap':   'NetdevNetmapOptions',
-    'vhost-user': 'NetdevVhostUserOptions' } }
+    'vhost-user': 'NetdevVhostUserOptions',
+    'replay':   'NetdevReplayOptions' } }
 
 ##
 # @NetLegacy

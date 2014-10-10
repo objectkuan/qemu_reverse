@@ -19,6 +19,7 @@
 
 struct QemuOpts;
 struct InputEvent;
+struct NetClientState;
 
 /* replay clock kinds */
 /* rdtsc */
@@ -118,5 +119,13 @@ void replay_init_icount(void);
 /* Returns the virtual CPU time, based on the instruction counter.  */
 int64_t replay_get_icount(void);
 void replay_clock_warp(void);
+
+/* Network */
+
+/*! Registers net client in the replay module. */
+void replay_add_network_client(struct NetClientState *nc);
+/*! Saves incoming network packet in the replay log. */
+void replay_save_net_packet(struct NetClientState *nc, const uint8_t *buf,
+                            size_t size);
 
 #endif
