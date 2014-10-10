@@ -1304,7 +1304,7 @@ static void vga_draw_text(VGACommonState *s, int full_update)
     uint32_t *ch_attr_ptr;
     vga_draw_glyph8_func *vga_draw_glyph8;
     vga_draw_glyph9_func *vga_draw_glyph9;
-    int64_t now = qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL);
+    int64_t now = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
 
     /* compute font data address (in plane 2) */
     v = s->sr[VGA_SEQ_CHARACTER_MAP];
@@ -1385,7 +1385,7 @@ static void vga_draw_text(VGACommonState *s, int full_update)
         s->cursor_end = s->cr[VGA_CRTC_CURSOR_END];
     }
     cursor_ptr = s->vram_ptr + (s->start_addr + cursor_offset) * 4;
-    if (now >= s->cursor_blink_time) {
+    if (now >= s->cursor_blink_time && runstate_is_running()) {
         s->cursor_blink_time = now + VGA_TEXT_CURSOR_PERIOD_MS / 2;
         s->cursor_visible_phase = !s->cursor_visible_phase;
     }
@@ -1906,7 +1906,7 @@ static void vga_update_display(void *opaque)
         }
         if (graphic_mode != s->graphic_mode) {
             s->graphic_mode = graphic_mode;
-            s->cursor_blink_time = qemu_clock_get_ms(QEMU_CLOCK_VIRTUAL);
+            s->cursor_blink_time = qemu_clock_get_ms(QEMU_CLOCK_REALTIME);
             full_update = 1;
         }
         switch(graphic_mode) {
