@@ -409,7 +409,7 @@ static void piix3_set_irq_pic(PIIX3State *piix3, int pic_irq)
                      (pic_irq * PIIX_NUM_PIRQS))));
 }
 
-static void piix3_set_irq_level(PIIX3State *piix3, int pirq, int level)
+static void piix3_set_irq_level_internal(PIIX3State *piix3, int pirq, int level)
 {
     int pic_irq;
     uint64_t mask;
@@ -422,6 +422,18 @@ static void piix3_set_irq_level(PIIX3State *piix3, int pirq, int level)
     mask = 1ULL << ((pic_irq * PIIX_NUM_PIRQS) + pirq);
     piix3->pic_levels &= ~mask;
     piix3->pic_levels |= mask * !!level;
+}
+
+static void piix3_set_irq_level(PIIX3State *piix3, int pirq, int level)
+{
+    int pic_irq;
+
+    pic_irq = piix3->dev.config[PIIX_PIRQC + pirq];
+    if (pic_irq >= PIIX_NUM_PIC_IRQS) {
+        return;
+    }
+
+    piix3_set_irq_level_internal(piix3, pirq, level);
 
     piix3_set_irq_pic(piix3, pic_irq);
 }
@@ -527,7 +539,13 @@ static void piix3_reset(void *opaque)
 static int piix3_post_load(void *opaque, int version_id)
 {
     PIIX3State *piix3 = opaque;
-    piix3_update_irq_levels(piix3);
+    int pirq;
+
+    piix3->pic_levels = 0;
+    for (pirq = 0; pirq < PIIX_NUM_PIRQS; pirq++) {
+        piix3_set_irq_level_internal(piix3, pirq,
+                            pci_bus_get_irq_level(piix3->dev.bus, pirq));
+    }
     return 0;
 }
 
