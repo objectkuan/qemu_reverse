@@ -35,6 +35,7 @@
 #include "qmp-commands.h"
 #include "qemu/timer.h"
 #include "qapi-event.h"
+#include "replay/replay.h"
 
 #ifdef CONFIG_BSD
 #include <sys/types.h>
@@ -1222,7 +1223,8 @@ int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp)
     assert(bs->backing_hd == NULL);
     ret = bdrv_open(&backing_hd,
                     *backing_filename ? backing_filename : NULL, NULL, options,
-                    bdrv_backing_flags(bs->open_flags), back_drv, &local_err);
+                    bdrv_backing_flags(bs->open_flags), back_drv,
+                    &local_err, NULL);
     if (ret < 0) {
         bdrv_unref(backing_hd);
         backing_hd = NULL;
@@ -1257,7 +1259,7 @@ free_exit:
  */
 int bdrv_open_image(BlockDriverState **pbs, const char *filename,
                     QDict *options, const char *bdref_key, int flags,
-                    bool allow_none, Error **errp)
+                    bool allow_none, Error **errp, const char *fname_suffix)
 {
     QDict *image_options;
     int ret;
@@ -1284,14 +1286,16 @@ int bdrv_open_image(BlockDriverState **pbs, const char *filename,
         goto done;
     }
 
-    ret = bdrv_open(pbs, filename, reference, image_options, flags, NULL, errp);
+    ret = bdrv_open(pbs, filename, reference, image_options, flags,
+                    NULL, errp, NULL);
 
 done:
     qdict_del(options, bdref_key);
     return ret;
 }
 
-int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp)
+int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp,
+                              const char *fname_suffix)
 {
     /* TODO: extra byte is a hack to ensure MAX_PATH space on Windows. */
     char *tmp_filename = g_malloc0(PATH_MAX + 1);
@@ -1316,17 +1320,30 @@ int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp)
     total_size &= BDRV_SECTOR_MASK;
 
     /* Create the temporary image */
-    ret = get_tmp_filename(tmp_filename, PATH_MAX + 1);
-    if (ret < 0) {
-        error_setg_errno(errp, -ret, "Could not get temporary filename");
-        goto out;
+    /* We will not delete created file in record/replay mode */
+    if (replay_mode != REPLAY_MODE_NONE && fname_suffix) {
+        ret = snprintf(tmp_filename, PATH_MAX + 1, "%s.%s", bs->filename,
+                       fname_suffix);
+        if (ret < 0) {
+            goto out;
+        }
+    } else {
+        ret = get_tmp_filename(tmp_filename, PATH_MAX + 1);
+        if (ret < 0) {
+            error_setg_errno(errp, -ret, "Could not get temporary filename");
+            goto out;
+        }
     }
 
     bdrv_qcow2 = bdrv_find_format("qcow2");
     opts = qemu_opts_create(bdrv_qcow2->create_opts, NULL, 0,
                             &error_abort);
     qemu_opt_set_number(opts, BLOCK_OPT_SIZE, total_size);
-    ret = bdrv_create(bdrv_qcow2, tmp_filename, opts, &local_err);
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        ret = 0;
+    } else {
+        ret = bdrv_create(bdrv_qcow2, tmp_filename, opts, &local_err);
+    }
     qemu_opts_del(opts);
     if (ret < 0) {
         error_setg_errno(errp, -ret, "Could not create temporary overlay "
@@ -1346,7 +1363,7 @@ int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp)
     bs_snapshot = bdrv_new("", &error_abort);
 
     ret = bdrv_open(&bs_snapshot, NULL, NULL, snapshot_options,
-                    flags, bdrv_qcow2, &local_err);
+                    flags, bdrv_qcow2, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto out;
@@ -1376,7 +1393,7 @@ out:
  */
 int bdrv_open(BlockDriverState **pbs, const char *filename,
               const char *reference, QDict *options, int flags,
-              BlockDriver *drv, Error **errp)
+              BlockDriver *drv, Error **errp, const char *fname_suffix)
 {
     int ret;
     BlockDriverState *file = NULL, *bs;
@@ -1457,13 +1474,16 @@ int bdrv_open(BlockDriverState **pbs, const char *filename,
         }
         if (flags & BDRV_O_SNAPSHOT) {
             snapshot_flags = bdrv_temp_snapshot_flags(flags);
+            if (replay_mode != REPLAY_MODE_NONE) {
+                snapshot_flags &= ~BDRV_O_TEMPORARY;
+            }
             flags = bdrv_backing_flags(flags);
         }
 
         assert(file == NULL);
         ret = bdrv_open_image(&file, filename, options, "file",
                               bdrv_inherited_flags(flags),
-                              true, &local_err);
+                              true, &local_err, NULL);
         if (ret < 0) {
             goto fail;
         }
@@ -1506,7 +1526,8 @@ int bdrv_open(BlockDriverState **pbs, const char *filename,
     /* For snapshot=on, create a temporary qcow2 overlay. bs points to the
      * temporary snapshot afterwards. */
     if (snapshot_flags) {
-        ret = bdrv_append_temp_snapshot(bs, snapshot_flags, &local_err);
+        ret = bdrv_append_temp_snapshot(bs, snapshot_flags, &local_err,
+                                        fname_suffix);
         if (local_err) {
             goto close_and_fail;
         }
@@ -5600,7 +5621,7 @@ void bdrv_img_create(const char *filename, const char *fmt,
 
             bs = NULL;
             ret = bdrv_open(&bs, backing_file, NULL, NULL, back_flags,
-                            backing_drv, &local_err);
+                            backing_drv, &local_err, NULL);
             if (ret < 0) {
                 error_setg_errno(errp, -ret, "Could not open '%s': %s",
                                  backing_file,

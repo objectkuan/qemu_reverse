@@ -2939,7 +2939,7 @@ static int enable_write_target(BDRVVVFATState *s, Error **errp)
     s->qcow = NULL;
     ret = bdrv_open(&s->qcow, s->qcow_filename, NULL, NULL,
                     BDRV_O_RDWR | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH,
-                    bdrv_qcow, errp);
+                    bdrv_qcow, errp, NULL);
     if (ret < 0) {
         goto err;
     }

@@ -809,7 +809,7 @@ static int vmdk_parse_extents(const char *desc, BlockDriverState *bs,
                 desc_file_path, fname);
         extent_file = NULL;
         ret = bdrv_open(&extent_file, extent_path, NULL, NULL,
-                        bs->open_flags | BDRV_O_PROTOCOL, NULL, errp);
+                        bs->open_flags | BDRV_O_PROTOCOL, NULL, errp, NULL);
         if (ret) {
             return ret;
         }
@@ -1545,7 +1545,7 @@ static int vmdk_create_extent(const char *filename, int64_t filesize,
 
     assert(bs == NULL);
     ret = bdrv_open(&bs, filename, NULL, NULL, BDRV_O_RDWR | BDRV_O_PROTOCOL,
-                    NULL, &local_err);
+                    NULL, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto exit;
@@ -1803,7 +1803,7 @@ static int vmdk_create(const char *filename, QemuOpts *opts, Error **errp)
     if (backing_file) {
         BlockDriverState *bs = NULL;
         ret = bdrv_open(&bs, backing_file, NULL, NULL, BDRV_O_NO_BACKING, NULL,
-                        errp);
+                        errp, NULL);
         if (ret != 0) {
             goto exit;
         }
@@ -1879,7 +1879,7 @@ static int vmdk_create(const char *filename, QemuOpts *opts, Error **errp)
     }
     assert(new_bs == NULL);
     ret = bdrv_open(&new_bs, filename, NULL, NULL,
-                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err);
+                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto exit;

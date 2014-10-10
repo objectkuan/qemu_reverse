@@ -663,7 +663,7 @@ int main(int argc, char **argv)
     bs = bdrv_new("hda", &error_abort);
 
     srcpath = argv[optind];
-    ret = bdrv_open(&bs, srcpath, NULL, NULL, flags, drv, &local_err);
+    ret = bdrv_open(&bs, srcpath, NULL, NULL, flags, drv, &local_err, NULL);
     if (ret < 0) {
         errno = -ret;
         err(EXIT_FAILURE, "Failed to bdrv_open '%s': %s", argv[optind],

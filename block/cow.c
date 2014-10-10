@@ -345,7 +345,7 @@ static int cow_create(const char *filename, QemuOpts *opts, Error **errp)
     }
 
     ret = bdrv_open(&cow_bs, filename, NULL, NULL,
-                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err);
+                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto exit;

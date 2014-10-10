@@ -211,13 +211,14 @@ int bdrv_parse_cache_flags(const char *mode, int *flags);
 int bdrv_parse_discard_flags(const char *mode, int *flags);
 int bdrv_open_image(BlockDriverState **pbs, const char *filename,
                     QDict *options, const char *bdref_key, int flags,
-                    bool allow_none, Error **errp);
+                    bool allow_none, Error **errp, const char *fname_suffix);
 void bdrv_set_backing_hd(BlockDriverState *bs, BlockDriverState *backing_hd);
 int bdrv_open_backing_file(BlockDriverState *bs, QDict *options, Error **errp);
-int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp);
+int bdrv_append_temp_snapshot(BlockDriverState *bs, int flags, Error **errp,
+                              const char *fname_suffix);
 int bdrv_open(BlockDriverState **pbs, const char *filename,
               const char *reference, QDict *options, int flags,
-              BlockDriver *drv, Error **errp);
+              BlockDriver *drv, Error **errp, const char *fname_suffix);
 BlockReopenQueue *bdrv_reopen_queue(BlockReopenQueue *bs_queue,
                                     BlockDriverState *bs, int flags);
 int bdrv_reopen_multiple(BlockReopenQueue *bs_queue, Error **errp);

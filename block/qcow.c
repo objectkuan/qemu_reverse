@@ -720,7 +720,7 @@ static int qcow_create(const char *filename, QemuOpts *opts, Error **errp)
 
     qcow_bs = NULL;
     ret = bdrv_open(&qcow_bs, filename, NULL, NULL,
-                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err);
+                    BDRV_O_RDWR | BDRV_O_PROTOCOL, NULL, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto cleanup;

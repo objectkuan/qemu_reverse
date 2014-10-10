@@ -60,7 +60,7 @@ static int openfile(char *name, int flags, int growable, QDict *opts)
 
     if (growable) {
         if (bdrv_open(&qemuio_bs, name, NULL, opts, flags | BDRV_O_PROTOCOL,
-                      NULL, &local_err))
+                      NULL, &local_err, NULL))
         {
             fprintf(stderr, "%s: can't open%s%s: %s\n", progname,
                     name ? " device " : "", name ?: "",
@@ -71,9 +71,8 @@ static int openfile(char *name, int flags, int growable, QDict *opts)
     } else {
         qemuio_bs = bdrv_new("hda", &error_abort);
 
-        if (bdrv_open(&qemuio_bs, name, NULL, opts, flags, NULL, &local_err)
-            < 0)
-        {
+        if (bdrv_open(&qemuio_bs, name, NULL, opts, flags, NULL,
+                      &local_err, NULL) < 0) {
             fprintf(stderr, "%s: can't open%s%s: %s\n", progname,
                     name ? " device " : "", name ?: "",
                     error_get_pretty(local_err));

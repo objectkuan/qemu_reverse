@@ -1653,7 +1653,7 @@ static int qcow2_create2(const char *filename, int64_t total_size,
 
     bs = NULL;
     ret = bdrv_open(&bs, filename, NULL, NULL, BDRV_O_RDWR | BDRV_O_PROTOCOL,
-                    NULL, &local_err);
+                    NULL, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         return ret;
@@ -1715,7 +1715,7 @@ static int qcow2_create2(const char *filename, int64_t total_size,
     BlockDriver* drv = bdrv_find_format("qcow2");
     assert(drv != NULL);
     ret = bdrv_open(&bs, filename, NULL, NULL,
-        BDRV_O_RDWR | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH, drv, &local_err);
+        BDRV_O_RDWR | BDRV_O_CACHE_WB | BDRV_O_NO_FLUSH, drv, &local_err, NULL);
     if (ret < 0) {
         error_propagate(errp, local_err);
         goto out;
@@ -1767,7 +1767,7 @@ static int qcow2_create2(const char *filename, int64_t total_size,
     /* Reopen the image without BDRV_O_NO_FLUSH to flush it before returning */
     ret = bdrv_open(&bs, filename, NULL, NULL,
                     BDRV_O_RDWR | BDRV_O_CACHE_WB | BDRV_O_NO_BACKING,
-                    drv, &local_err);
+                    drv, &local_err, NULL);
     if (local_err) {
         error_propagate(errp, local_err);
         goto out;
