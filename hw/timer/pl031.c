@@ -220,19 +220,30 @@ static void pl031_pre_save(void *opaque)
 {
     PL031State *s = opaque;
 
-    /* tick_offset is base_time - rtc_clock base time.  Instead, we want to
-     * store the base time relative to the QEMU_CLOCK_VIRTUAL for backwards-compatibility.  */
-    int64_t delta = qemu_clock_get_ns(rtc_clock) - qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    s->tick_offset_vmstate = s->tick_offset + delta / get_ticks_per_sec();
+    if (replay_mode == REPLAY_MODE_NONE) {
+        /* tick_offset is base_time - rtc_clock base time.  Instead, we want to
+         * store the base time relative to the QEMU_CLOCK_VIRTUAL
+         * for backwards-compatibility. */
+        int64_t delta = qemu_clock_get_ns(rtc_clock)
+                        - qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        s->tick_offset_vmstate = s->tick_offset + delta / get_ticks_per_sec();
+    } else {
+        s->tick_offset_vmstate = s->tick_offset;
+    }
 }
 
 static int pl031_post_load(void *opaque, int version_id)
 {
     PL031State *s = opaque;
 
-    int64_t delta = qemu_clock_get_ns(rtc_clock) - qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
-    s->tick_offset = s->tick_offset_vmstate - delta / get_ticks_per_sec();
-    pl031_set_alarm(s);
+    if (replay_mode == REPLAY_MODE_NONE) {
+        int64_t delta = qemu_clock_get_ns(rtc_clock)
+                        - qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL);
+        s->tick_offset = s->tick_offset_vmstate - delta / get_ticks_per_sec();
+        pl031_set_alarm(s);
+    } else {
+        s->tick_offset = s->tick_offset_vmstate;
+    }
     return 0;
 }
 
