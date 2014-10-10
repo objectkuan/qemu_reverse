@@ -286,6 +286,12 @@ const VMStateInfo vmstate_info_int8 = {
     .put  = put_int8,
 };
 
+const VMStateInfo vmstate_info_char = {
+    .name = "char",
+    .get  = get_int8,
+    .put  = put_int8,
+};
+
 /* 16 bit int */
 
 static int get_int16(QEMUFile *f, void *pv, size_t size)

@@ -143,6 +143,7 @@ extern const VMStateDescription vmstate_dummy;
 #endif
 
 extern const VMStateInfo vmstate_info_bool;
+extern const VMStateInfo vmstate_info_char;
 
 extern const VMStateInfo vmstate_info_int8;
 extern const VMStateInfo vmstate_info_int16;
@@ -693,6 +694,18 @@ extern const VMStateInfo vmstate_info_bitmap;
 
 #define VMSTATE_UINT64_ARRAY(_f, _s, _n)                              \
     VMSTATE_UINT64_ARRAY_V(_f, _s, _n, 0)
+
+#define VMSTATE_INT8_ARRAY_V(_f, _s, _n, _v)                          \
+    VMSTATE_ARRAY(_f, _s, _n, _v, vmstate_info_int8, int8_t)
+
+#define VMSTATE_INT8_ARRAY(_f, _s, _n)                                \
+    VMSTATE_INT8_ARRAY_V(_f, _s, _n, 0)
+
+#define VMSTATE_CHAR_ARRAY_V(_f, _s, _n, _v)                          \
+    VMSTATE_ARRAY(_f, _s, _n, _v, vmstate_info_char, char)
+
+#define VMSTATE_CHAR_ARRAY(_f, _s, _n)                                \
+    VMSTATE_CHAR_ARRAY_V(_f, _s, _n, 0)
 
 #define VMSTATE_INT16_ARRAY_V(_f, _s, _n, _v)                         \
     VMSTATE_ARRAY(_f, _s, _n, _v, vmstate_info_int16, int16_t)
