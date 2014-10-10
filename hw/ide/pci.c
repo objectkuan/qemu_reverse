@@ -382,6 +382,16 @@ static bool ide_bmdma_status_needed(void *opaque)
     return ((bm->status & abused_bits) != 0);
 }
 
+static int ide_bmdma_pre_load(void *opaque)
+{
+    BMDMAState *bm = opaque;
+    /* Reset is not performed in replay mode,
+       so reset status manually to allow ide_bmdma_post_load function
+       initialize it. */
+    bm->status = 0;
+    return 0;
+}
+
 static void ide_bmdma_pre_save(void *opaque)
 {
     BMDMAState *bm = opaque;
@@ -434,6 +444,7 @@ static const VMStateDescription vmstate_bmdma = {
     .name = "ide bmdma",
     .version_id = 3,
     .minimum_version_id = 0,
+    .pre_load  = ide_bmdma_pre_load,
     .pre_save  = ide_bmdma_pre_save,
     .fields = (VMStateField[]) {
         VMSTATE_UINT8(cmd, BMDMAState),
