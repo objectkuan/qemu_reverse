@@ -3246,10 +3246,17 @@ static uint32_t rtl8139_mmio_readl(void *opaque, hwaddr addr)
     return val;
 }
 
+static int rtl8139_pre_load(void *opaque)
+{
+    RTL8139State *s = opaque;
+    s->TimerExpire = 0;
+    timer_del(s->timer);
+    return 0;
+}
+
 static int rtl8139_post_load(void *opaque, int version_id)
 {
     RTL8139State* s = opaque;
-    rtl8139_set_next_tctr_time(s, qemu_clock_get_ns(QEMU_CLOCK_VIRTUAL));
     if (version_id < 4) {
         s->cplus_enabled = s->CpCmd != 0;
     }
@@ -3275,6 +3282,38 @@ static const VMStateDescription vmstate_rtl8139_hotplug_ready ={
     }
 };
 
+static bool rtl8139_TimerExpire_needed(void *opaque)
+{
+    RTL8139State *s = (RTL8139State *)opaque;
+    return s->TimerExpire != 0;
+}
+
+static const VMStateDescription vmstate_rtl8139_TimerExpire = {
+    .name = "rtl8139/TimerExpire",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_INT64(TimerExpire, RTL8139State),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
+static bool rtl8139_timer_needed(void *opaque)
+{
+    RTL8139State *s = (RTL8139State *)opaque;
+    return timer_pending(s->timer);
+}
+
+static const VMStateDescription vmstate_rtl8139_timer = {
+    .name = "rtl8139/timer",
+    .version_id = 1,
+    .minimum_version_id = 1,
+    .fields = (VMStateField[]) {
+        VMSTATE_TIMER(timer, RTL8139State),
+        VMSTATE_END_OF_LIST()
+    }
+};
+
 static void rtl8139_pre_save(void *opaque)
 {
     RTL8139State* s = opaque;
@@ -3289,8 +3328,9 @@ static void rtl8139_pre_save(void *opaque)
 
 static const VMStateDescription vmstate_rtl8139 = {
     .name = "rtl8139",
-    .version_id = 4,
+    .version_id = 5,
     .minimum_version_id = 3,
+    .pre_load = rtl8139_pre_load,
     .post_load = rtl8139_post_load,
     .pre_save  = rtl8139_pre_save,
     .fields = (VMStateField[]) {
@@ -3370,6 +3410,12 @@ static const VMStateDescription vmstate_rtl8139 = {
         {
             .vmsd = &vmstate_rtl8139_hotplug_ready,
             .needed = rtl8139_hotplug_ready_needed,
+        }, {
+            .vmsd = &vmstate_rtl8139_TimerExpire,
+            .needed = rtl8139_TimerExpire_needed,
+        }, {
+            .vmsd = &vmstate_rtl8139_timer,
+            .needed = rtl8139_timer_needed,
         }, {
             /* empty */
         }
