@@ -265,7 +265,7 @@ void virtio_submit_multiwrite(BlockDriverState *bs, MultiReqBuffer *mrb)
         return;
     }
 
-    ret = bdrv_aio_multiwrite(bs, mrb->blkreq, mrb->num_writes);
+    ret = bdrv_aio_multiwrite(bs, mrb->blkreq, mrb->num_writes, true);
     if (ret != 0) {
         for (i = 0; i < mrb->num_writes; i++) {
             if (mrb->blkreq[i].error) {
@@ -285,7 +285,7 @@ static void virtio_blk_handle_flush(VirtIOBlockReq *req, MultiReqBuffer *mrb)
      * Make sure all outstanding writes are posted to the backing device.
      */
     virtio_submit_multiwrite(req->dev->bs, mrb);
-    bdrv_aio_flush(req->dev->bs, virtio_blk_flush_complete, req);
+    bdrv_aio_flush_replay(req->dev->bs, virtio_blk_flush_complete, req);
 }
 
 static bool virtio_blk_sect_range_ok(VirtIOBlock *dev,
@@ -354,9 +354,9 @@ static void virtio_blk_handle_read(VirtIOBlockReq *req)
     }
 
     bdrv_acct_start(req->dev->bs, &req->acct, req->qiov.size, BDRV_ACCT_READ);
-    bdrv_aio_readv(req->dev->bs, sector, &req->qiov,
-                   req->qiov.size / BDRV_SECTOR_SIZE,
-                   virtio_blk_rw_complete, req);
+    bdrv_aio_readv_replay(req->dev->bs, sector, &req->qiov,
+                          req->qiov.size / BDRV_SECTOR_SIZE,
+                          virtio_blk_rw_complete, req);
 }
 
 void virtio_blk_handle_request(VirtIOBlockReq *req, MultiReqBuffer *mrb)

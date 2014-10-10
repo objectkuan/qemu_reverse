@@ -592,7 +592,7 @@ static int do_aio_multiwrite(BlockDriverState *bs, BlockRequest* reqs,
         *total += reqs[i].qiov->size;
     }
 
-    ret = bdrv_aio_multiwrite(bs, reqs, num_reqs);
+    ret = bdrv_aio_multiwrite(bs, reqs, num_reqs, false);
     if (ret < 0) {
         return ret;
     }

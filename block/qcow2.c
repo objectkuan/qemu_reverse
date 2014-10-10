@@ -997,6 +997,8 @@ static coroutine_fn int qcow2_co_readv(BlockDriverState *bs, int64_t sector_num,
     uint8_t *cluster_data = NULL;
 
     qemu_iovec_init(&hd_qiov, qiov->niov);
+    hd_qiov.replay = qiov->replay;
+    hd_qiov.replay_step = qiov->replay_step;
 
     qemu_co_mutex_lock(&s->lock);
 
@@ -1149,6 +1151,8 @@ static coroutine_fn int qcow2_co_writev(BlockDriverState *bs,
                                  remaining_sectors);
 
     qemu_iovec_init(&hd_qiov, qiov->niov);
+    hd_qiov.replay = qiov->replay;
+    hd_qiov.replay_step = qiov->replay_step;
 
     s->cluster_cache_offset = -1; /* disable compressed cache */
 

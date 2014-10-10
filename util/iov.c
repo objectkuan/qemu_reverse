@@ -257,6 +257,8 @@ void qemu_iovec_init(QEMUIOVector *qiov, int alloc_hint)
     qiov->niov = 0;
     qiov->nalloc = alloc_hint;
     qiov->size = 0;
+    qiov->replay = false;
+    qiov->replay_step = 0;
 }
 
 void qemu_iovec_init_external(QEMUIOVector *qiov, struct iovec *iov, int niov)
@@ -267,6 +269,8 @@ void qemu_iovec_init_external(QEMUIOVector *qiov, struct iovec *iov, int niov)
     qiov->niov = niov;
     qiov->nalloc = -1;
     qiov->size = 0;
+    qiov->replay = false;
+    qiov->replay_step = 0;
     for (i = 0; i < niov; i++)
         qiov->size += iov[i].iov_len;
 }

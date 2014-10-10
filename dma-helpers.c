@@ -223,6 +223,8 @@ BlockDriverAIOCB *dma_bdrv_io(
     dbs->io_func = io_func;
     dbs->bh = NULL;
     qemu_iovec_init(&dbs->iov, sg->nsg);
+    dbs->iov.replay = true;
+    dbs->iov.replay_step = replay_get_current_step();
     dma_bdrv_cb(dbs, 0);
     return &dbs->common;
 }
@@ -232,7 +234,7 @@ BlockDriverAIOCB *dma_bdrv_read(BlockDriverState *bs,
                                 QEMUSGList *sg, uint64_t sector,
                                 void (*cb)(void *opaque, int ret), void *opaque)
 {
-    return dma_bdrv_io(bs, sg, sector, bdrv_aio_readv, cb, opaque,
+    return dma_bdrv_io(bs, sg, sector, bdrv_aio_readv_replay, cb, opaque,
                        DMA_DIRECTION_FROM_DEVICE);
 }
 
@@ -240,7 +242,7 @@ BlockDriverAIOCB *dma_bdrv_write(BlockDriverState *bs,
                                  QEMUSGList *sg, uint64_t sector,
                                  void (*cb)(void *opaque, int ret), void *opaque)
 {
-    return dma_bdrv_io(bs, sg, sector, bdrv_aio_writev, cb, opaque,
+    return dma_bdrv_io(bs, sg, sector, bdrv_aio_writev_replay, cb, opaque,
                        DMA_DIRECTION_TO_DEVICE);
 }
 

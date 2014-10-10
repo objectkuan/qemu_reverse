@@ -309,6 +309,8 @@ typedef struct QEMUIOVector {
     int niov;
     int nalloc;
     size_t size;
+    bool replay;
+    uint64_t replay_step;
 } QEMUIOVector;
 
 void qemu_iovec_init(QEMUIOVector *qiov, int alloc_hint);
