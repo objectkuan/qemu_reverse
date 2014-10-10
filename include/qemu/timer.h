@@ -4,6 +4,7 @@
 #include "qemu/typedefs.h"
 #include "qemu-common.h"
 #include "qemu/notify.h"
+#include "replay/replay.h"
 
 /* timers */
 
@@ -699,13 +700,30 @@ static inline int64_t get_ticks_per_sec(void)
  * Low level clock functions
  */
 
-/* real time host monotonic timer */
-static inline int64_t get_clock_realtime(void)
+/* real time host monotonic timer implementation */
+static inline int64_t get_clock_realtime_impl(void)
 {
     struct timeval tv;
 
     gettimeofday(&tv, NULL);
     return tv.tv_sec * 1000000000LL + (tv.tv_usec * 1000);
+}
+
+/* real time host monotonic timer interface */
+static inline int64_t get_clock_realtime(void)
+{
+    int64_t result;
+
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        result = get_clock_realtime_impl();
+        replay_save_clock(REPLAY_CLOCK_REALTIME, result);
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        result = replay_read_clock(REPLAY_CLOCK_REALTIME);
+    } else {
+        result = get_clock_realtime_impl();
+    }
+
+    return result;
 }
 
 /* Warning: don't insert tracepoints into these functions, they are
@@ -748,6 +766,8 @@ int64_t cpu_get_clock(void);
 
 /*******************************************/
 /* host CPU ticks (if available) */
+
+#define cpu_get_real_ticks cpu_get_real_ticks_impl
 
 #if defined(_ARCH_PPC)
 
@@ -901,6 +921,24 @@ static inline int64_t cpu_get_real_ticks (void)
     return ticks++;
 }
 #endif
+
+#undef cpu_get_real_ticks
+
+static inline int64_t cpu_get_real_ticks(void)
+{
+    int64_t val;
+
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        val = cpu_get_real_ticks_impl();
+        replay_save_clock(REPLAY_CLOCK_REAL_TICKS, val);
+    } else if (replay_mode == REPLAY_MODE_PLAY) {
+        val = replay_read_clock(REPLAY_CLOCK_REAL_TICKS);
+    } else {
+        val = cpu_get_real_ticks_impl();
+    }
+
+    return val;
+}
 
 #ifdef CONFIG_PROFILER
 static inline int64_t profile_getclock(void)

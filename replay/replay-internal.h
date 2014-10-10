@@ -24,12 +24,17 @@
 #define EVENT_ASYNC_OPT             25
 /* for instruction event */
 #define EVENT_INSTRUCTION           32
+/* for clock read/writes */
+#define EVENT_CLOCK                 64
+/* some of grteater codes are reserved for clocks */
 
 /* Asynchronous events IDs */
 
 #define REPLAY_ASYNC_COUNT             0
 
 typedef struct ReplayState {
+    /*! Cached clock values. */
+    int64_t cached_clock[REPLAY_CLOCK_COUNT];
     /*! Nonzero, when next instruction is repeated one and was already
         processed. */
     int skipping_instruction;
@@ -77,6 +82,12 @@ bool skip_async_events(int stop_event);
     until required data kind is found. If the requested data is not found
     reports an error and stops the execution. */
 void skip_async_events_until(unsigned int kind);
+
+/*! Reads next clock value from the file.
+    If clock kind read from the file is different from the parameter,
+    the value is not used.
+    If the parameter is -1, the clock value is read to the cache anyway. */
+void replay_read_next_clock(unsigned int kind);
 
 /* Asynchronous events queue */
 

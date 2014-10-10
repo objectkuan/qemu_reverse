@@ -40,6 +40,7 @@
 #include "qemu/bitmap.h"
 #include "qemu/seqlock.h"
 #include "qapi-event.h"
+#include "replay/replay.h"
 
 #ifndef _WIN32
 #include "qemu/compatfd.h"
@@ -206,10 +207,18 @@ int64_t cpu_get_clock(void)
     int64_t ti;
     unsigned start;
 
+    if (replay_mode == REPLAY_MODE_PLAY) {
+        return replay_read_clock(REPLAY_CLOCK_VIRTUAL);
+    }
+
     do {
         start = seqlock_read_begin(&timers_state.vm_clock_seqlock);
         ti = cpu_get_clock_locked();
     } while (seqlock_read_retry(&timers_state.vm_clock_seqlock, start));
+
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        replay_save_clock(REPLAY_CLOCK_VIRTUAL, ti);
+    }
 
     return ti;
 }

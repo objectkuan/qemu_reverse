@@ -25,6 +25,7 @@
 #include "sysemu/sysemu.h"
 #include "monitor/monitor.h"
 #include "ui/console.h"
+#include "replay/replay.h"
 
 #include "hw/hw.h"
 
@@ -562,7 +563,7 @@ int64_t qemu_clock_get_ns(QEMUClockType type)
         now = get_clock_realtime();
         last = clock->last;
         clock->last = now;
-        if (now < last) {
+        if (now < last && replay_mode == REPLAY_MODE_NONE) {
             notifier_list_notify(&clock->reset_notifiers, &now);
         }
         return now;
