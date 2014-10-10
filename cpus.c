@@ -85,7 +85,7 @@ static bool cpu_thread_is_idle(CPUState *cpu)
     return true;
 }
 
-static bool all_cpu_threads_idle(void)
+bool all_cpu_threads_idle(void)
 {
     CPUState *cpu;
 
@@ -1033,7 +1033,7 @@ bool qemu_cpu_is_self(CPUState *cpu)
     return qemu_thread_is_self(cpu->thread);
 }
 
-static bool qemu_in_vcpu_thread(void)
+bool qemu_in_vcpu_thread(void)
 {
     return current_cpu && qemu_cpu_is_self(current_cpu);
 }

@@ -212,6 +212,7 @@ static inline unsigned int tb_phys_hash_func(tb_page_addr_t pc)
 
 void tb_free(TranslationBlock *tb);
 void tb_flush(CPUArchState *env);
+void tb_flush_all(void);
 void tb_phys_invalidate(TranslationBlock *tb, tb_page_addr_t page_addr);
 
 #if defined(USE_DIRECT_JUMP)
@@ -385,7 +386,8 @@ tb_page_addr_t get_page_addr_code(CPUArchState *env1, target_ulong addr);
 
 typedef void (CPUDebugExcpHandler)(CPUArchState *env);
 
-void cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler);
+CPUDebugExcpHandler *cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler);
+void cpu_handle_debug_exception(CPUArchState *env);
 
 /* vl.c */
 extern int singlestep;

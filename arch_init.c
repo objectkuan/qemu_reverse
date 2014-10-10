@@ -52,6 +52,7 @@
 #include "exec/ram_addr.h"
 #include "hw/acpi/acpi.h"
 #include "qemu/host-utils.h"
+#include "replay/replay.h"
 
 #ifdef DEBUG_ARCH_INIT
 #define DPRINTF(fmt, ...) \
@@ -1091,6 +1092,13 @@ static int ram_load(QEMUFile *f, void *opaque, int version_id)
                 }
 
                 total_ram_bytes -= length;
+            }
+            if (replay_mode == REPLAY_MODE_PLAY) {
+                RAMBlock *block;
+                /* Clear the blocks' memory instead of resetting the machine */
+                QTAILQ_FOREACH(block, &ram_list.blocks, next) {
+                    memset(block->host, 0, block->length);
+                }
             }
         } else if (flags & RAM_SAVE_FLAG_COMPRESS) {
             void *host;

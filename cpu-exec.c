@@ -189,12 +189,14 @@ static inline TranslationBlock *tb_find_fast(CPUArchState *env)
 
 static CPUDebugExcpHandler *debug_excp_handler;
 
-void cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler)
+CPUDebugExcpHandler *cpu_set_debug_excp_handler(CPUDebugExcpHandler *handler)
 {
+    CPUDebugExcpHandler *old = debug_excp_handler;
     debug_excp_handler = handler;
+    return old;
 }
 
-static void cpu_handle_debug_exception(CPUArchState *env)
+void cpu_handle_debug_exception(CPUArchState *env)
 {
     CPUState *cpu = ENV_GET_CPU(env);
     CPUWatchpoint *wp;

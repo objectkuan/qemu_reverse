@@ -42,7 +42,7 @@
 #include "qemu/iov.h"
 #include "block/snapshot.h"
 #include "block/qapi.h"
-
+#include "replay/replay.h"
 
 #ifndef ETH_P_RARP
 #define ETH_P_RARP 0x8035
@@ -1039,7 +1039,7 @@ static int del_existing_snapshots(Monitor *mon, const char *name)
     return 0;
 }
 
-void do_savevm(Monitor *mon, const QDict *qdict)
+int save_vmstate(Monitor *mon, const char *name)
 {
     BlockDriverState *bs, *bs1;
     QEMUSnapshotInfo sn1, *sn = &sn1, old_sn1, *old_sn = &old_sn1;
@@ -1049,7 +1049,7 @@ void do_savevm(Monitor *mon, const QDict *qdict)
     uint64_t vm_state_size;
     qemu_timeval tv;
     struct tm tm;
-    const char *name = qdict_get_try_str(qdict, "name");
+    int success = 0;
 
     /* Verify if there is a device that doesn't support snapshots and is writable */
     bs = NULL;
@@ -1062,14 +1062,19 @@ void do_savevm(Monitor *mon, const QDict *qdict)
         if (!bdrv_can_snapshot(bs)) {
             monitor_printf(mon, "Device '%s' is writable but does not support snapshots.\n",
                                bdrv_get_device_name(bs));
-            return;
+            return success;
         }
     }
 
     bs = find_vmstate_bs();
     if (!bs) {
         monitor_printf(mon, "No block device can accept snapshots\n");
-        return;
+        if (replay_mode != REPLAY_MODE_NONE) {
+            fprintf(stderr,
+                    "At least one hdd should be attached to QEMU for replay\n");
+            exit(1);
+        }
+        return success;
     }
 
     saved_vm_running = runstate_is_running();
@@ -1118,6 +1123,7 @@ void do_savevm(Monitor *mon, const QDict *qdict)
 
     /* create the snapshots */
 
+    success = 1;
     bs1 = NULL;
     while ((bs1 = bdrv_next(bs1))) {
         if (bdrv_can_snapshot(bs1)) {
@@ -1127,6 +1133,7 @@ void do_savevm(Monitor *mon, const QDict *qdict)
             if (ret < 0) {
                 monitor_printf(mon, "Error while creating snapshot on '%s'\n",
                                bdrv_get_device_name(bs1));
+                success = 0;
             }
         }
     }
@@ -1135,6 +1142,14 @@ void do_savevm(Monitor *mon, const QDict *qdict)
     if (saved_vm_running) {
         vm_start();
     }
+
+    return success;
+}
+
+void do_savevm(Monitor *mon, const QDict *qdict)
+{
+    const char *name = qdict_get_try_str(qdict, "name");
+    save_vmstate(mon, name);
 }
 
 void qmp_xen_save_devices_state(const char *filename, Error **errp)
@@ -1231,7 +1246,13 @@ int load_vmstate(const char *name)
         return -EINVAL;
     }
 
-    qemu_system_reset(VMRESET_SILENT);
+    /* Do not reset in replay mode.
+       1. Reset will alter the behavior in play mode compared to save one
+       2. Timers read by reset handlers are not correct, because
+          replay reads them from the unknown part of the log */
+    if (replay_mode == REPLAY_MODE_NONE) {
+        qemu_system_reset(VMRESET_SILENT);
+    }
     ret = qemu_loadvm_state(f);
 
     qemu_fclose(f);

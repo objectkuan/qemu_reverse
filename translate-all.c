@@ -803,6 +803,14 @@ void tb_flush(CPUArchState *env1)
     tcg_ctx.tb_ctx.tb_flush_count++;
 }
 
+void tb_flush_all(void)
+{
+    CPUState *cpu;
+    for (cpu = first_cpu ; cpu != NULL ; cpu = CPU_NEXT(cpu)) {
+        tb_flush(cpu->env_ptr);
+    }
+}
+
 #ifdef DEBUG_TB_CHECK
 
 static void tb_invalidate_check(target_ulong address)
