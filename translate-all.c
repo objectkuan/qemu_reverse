@@ -59,6 +59,7 @@
 #include "exec/cputlb.h"
 #include "translate-all.h"
 #include "qemu/timer.h"
+#include "replay/replay.h"
 
 //#define DEBUG_TB_INVALIDATE
 //#define DEBUG_FLUSH
@@ -1171,6 +1172,9 @@ void tb_invalidate_phys_page_range(tb_page_addr_t start, tb_page_addr_t end,
                 cpu_restore_state_from_tb(cpu, current_tb, cpu->mem_io_pc);
                 cpu_get_tb_cpu_state(env, &current_pc, &current_cs_base,
                                      &current_flags);
+                /* Current instruction is already processed by replay.
+                   Set flags that allow skpping this event */
+                replay_undo_last_instruction();
             }
 #endif /* TARGET_HAS_PRECISE_SMC */
             /* we need to do that to handle the case where a signal
@@ -1290,6 +1294,9 @@ static void tb_invalidate_phys_page(tb_page_addr_t addr,
             cpu_restore_state_from_tb(cpu, current_tb, pc);
             cpu_get_tb_cpu_state(env, &current_pc, &current_cs_base,
                                  &current_flags);
+            /* Current instruction is already processed by replay.
+               Set flags that allow skpping this event */
+            replay_undo_last_instruction();
         }
 #endif /* TARGET_HAS_PRECISE_SMC */
         tb_phys_invalidate(tb, addr);

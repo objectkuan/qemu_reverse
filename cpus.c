@@ -937,6 +937,8 @@ static void *qemu_tcg_cpu_thread_fn(void *arg)
     CPU_FOREACH(cpu) {
         cpu->thread_id = qemu_get_thread_id();
         cpu->created = true;
+        /* init exception index here */
+        cpu->exception_index = -1;
     }
     qemu_cond_signal(&qemu_cpu_cond);
 
@@ -1186,6 +1188,7 @@ void qemu_init_vcpu(CPUState *cpu)
     cpu->nr_cores = smp_cores;
     cpu->nr_threads = smp_threads;
     cpu->stopped = true;
+    cpu->instructions_count = 0;
     if (kvm_enabled()) {
         qemu_kvm_start_vcpu(cpu);
     } else if (tcg_enabled()) {
@@ -1306,6 +1309,8 @@ static void tcg_exec_all(void)
             r = tcg_cpu_exec(env);
             if (r == EXCP_DEBUG) {
                 cpu_handle_guest_debug(cpu);
+                break;
+            } else if (r == EXCP_REPLAY) {
                 break;
             }
         } else if (cpu->stop || cpu->stopped) {

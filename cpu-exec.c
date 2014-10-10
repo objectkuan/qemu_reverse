@@ -22,6 +22,7 @@
 #include "tcg.h"
 #include "qemu/atomic.h"
 #include "sysemu/qtest.h"
+#include "qemu/main-loop.h"
 
 void cpu_loop_exit(CPUState *cpu)
 {
@@ -283,19 +284,24 @@ int cpu_exec(CPUArchState *env)
 #else
 #error unsupported target CPU
 #endif
-    cpu->exception_index = -1;
-
     /* prepare setjmp context for exception handling */
     for(;;) {
         if (sigsetjmp(cpu->jmp_env, 0) == 0) {
             /* if an exception is pending, we execute it here */
             if (cpu->exception_index >= 0) {
+                if (cpu->exception_index == EXCP_REPLAY) {
+                    ret = cpu->exception_index;
+                    cpu->exception_index = -1;
+                    qemu_notify_event();
+                    break;
+                }
                 if (cpu->exception_index >= EXCP_INTERRUPT) {
                     /* exit request from the cpu execution loop */
                     ret = cpu->exception_index;
                     if (ret == EXCP_DEBUG) {
                         cpu_handle_debug_exception(env);
                     }
+                    cpu->exception_index = -1;
                     break;
                 } else {
 #if defined(CONFIG_USER_ONLY)
@@ -600,6 +606,10 @@ int cpu_exec(CPUArchState *env)
                            the program flow was changed */
                         next_tb = 0;
                     }
+                }
+                if (cpu->exception_index == EXCP_REPLAY) {
+                    /* go to exception_index checking */
+                    break;
                 }
                 if (unlikely(cpu->exit_request)) {
                     cpu->exit_request = 0;

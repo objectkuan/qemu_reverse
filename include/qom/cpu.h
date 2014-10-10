@@ -287,6 +287,7 @@ struct CPUState {
        (absolute value) offset as small as possible.  This reduces code
        size, especially for hosts without large memory offsets.  */
     volatile sig_atomic_t tcg_exit_req;
+    uint32_t instructions_count;
 };
 
 QTAILQ_HEAD(CPUTailQ, CPUState);
@@ -465,6 +466,8 @@ static inline bool cpu_has_work(CPUState *cpu)
  * Returns: %true if called from @cpu's thread, %false otherwise.
  */
 bool qemu_cpu_is_self(CPUState *cpu);
+
+bool qemu_in_vcpu_thread(void);
 
 /**
  * qemu_cpu_kick:

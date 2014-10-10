@@ -10,6 +10,7 @@
  */
 
 #include "qemu-common.h"
+#include "replay.h"
 #include "replay-internal.h"
 
 volatile unsigned int replay_data_kind = -1;
@@ -136,6 +137,19 @@ void replay_fetch_data_kind(void)
             replay_data_kind = replay_get_byte();
             replay_check_error();
             replay_has_unread_data = 1;
+        }
+    }
+}
+
+/*! Saves cached instructions. */
+void replay_save_instructions(void)
+{
+    if (replay_file && replay_mode == REPLAY_MODE_RECORD) {
+        if (first_cpu != NULL && first_cpu->instructions_count > 0) {
+            replay_put_event(EVENT_INSTRUCTION);
+            replay_put_dword(first_cpu->instructions_count);
+            replay_state.current_step += first_cpu->instructions_count;
+            first_cpu->instructions_count = 0;
         }
     }
 }

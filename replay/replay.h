@@ -12,6 +12,8 @@
  *
  */
 
+#include <stdbool.h>
+#include <stdint.h>
 #include "qapi-types.h"
 
 extern ReplayMode replay_mode;
@@ -19,5 +21,18 @@ extern char *replay_image_suffix;
 
 /*! Returns replay play submode */
 ReplaySubmode replay_get_play_submode(void);
+
+/* Processing the instructions */
+
+/*! Returns number of executed instructions. */
+uint64_t replay_get_current_step(void);
+/*! Called before instruction execution */
+void replay_instruction(int process_events);
+/*! Undo last instruction count, when exception occurs */
+void replay_undo_last_instruction(void);
+/*! Returns true if asynchronous event is pending */
+bool replay_has_async_request(void);
+/*! Returns non-zero if next event is instruction. */
+bool replay_has_instruction(void);
 
 #endif
