@@ -73,6 +73,11 @@ void replay_save_tm(struct tm *tm);
 /*! Reads struct tm value from the log. Stops execution in case of error */
 void replay_read_tm(struct tm *tm);
 
+/* Events */
+
+/*! Called when qemu shutdown is requested. */
+void replay_shutdown_request(void);
+
 /* Asynchronous events queue */
 
 /*! Disables storing events in the queue */

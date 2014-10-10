@@ -43,6 +43,10 @@ bool skip_async_events(int stop_event)
             res = true;
         }
         switch (replay_data_kind) {
+        case EVENT_SHUTDOWN:
+            replay_has_unread_data = 0;
+            qemu_system_shutdown_request_impl();
+            break;
         case EVENT_INSTRUCTION:
             first_cpu->instructions_count = replay_get_dword();
             return res;
@@ -199,4 +203,11 @@ bool replay_has_interrupt(void)
         return skip_async_events(EVENT_INTERRUPT);
     }
     return false;
+}
+
+void replay_shutdown_request(void)
+{
+    if (replay_mode == REPLAY_MODE_RECORD) {
+        replay_put_event(EVENT_SHUTDOWN);
+    }
 }

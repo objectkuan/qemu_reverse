@@ -21,6 +21,8 @@
 #define EVENT_TM                    2
 /* for software interrupt */
 #define EVENT_INTERRUPT             15
+/* for shutdown request */
+#define EVENT_SHUTDOWN              20
 /* for emulated exceptions */
 #define EVENT_EXCEPTION             23
 /* for async events */

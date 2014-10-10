@@ -1930,11 +1930,17 @@ void qemu_system_killed(int signal, pid_t pid)
     qemu_system_shutdown_request();
 }
 
-void qemu_system_shutdown_request(void)
+void qemu_system_shutdown_request_impl(void)
 {
     trace_qemu_system_shutdown_request();
     shutdown_requested = 1;
     qemu_notify_event();
+}
+
+void qemu_system_shutdown_request(void)
+{
+    replay_shutdown_request();
+    qemu_system_shutdown_request_impl();
 }
 
 static void qemu_system_powerdown(void)
