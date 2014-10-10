@@ -1796,7 +1796,8 @@ ETEXI
         .mhandler.cmd = do_replay_info,
     },
 
-STEXIaddress@hidden replay_info
+STEXI
+addresshidden replay_info
 Shows information about replay process.
 ETEXI
 
@@ -1808,7 +1809,8 @@ ETEXI
         .mhandler.cmd = do_replay_break,
     },
 
-STEXIaddress@hidden replay_break @var{step}
+STEXI
+addresshidden replay_break @var{step}
 Stops replaying at the specified @var{step}.
 
 ETEXI
@@ -1821,7 +1823,8 @@ ETEXI
         .mhandler.cmd = do_replay_seek,
     },
 
-STEXIaddress@hidden replay_seek @var{step}
+STEXI
+addresshidden replay_seek @var{step}
 Seeks the replay log to the specified @var{step}.
 
 ETEXI

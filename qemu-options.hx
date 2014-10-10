@@ -3339,7 +3339,7 @@ DEF("dump-vmstate", HAS_ARG, QEMU_OPTION_dump_vmstate,
     "                Output vmstate information in JSON format to file.\n"
     "                Use the scripts/vmstate-static-checker.py file to\n"
     "                check for possible regressions in migration code\n"
-    "                by comparing two such vmstate dumps.",
+    "                by comparing two such vmstate dumps.\n",
     QEMU_ARCH_ALL)
 STEXI
 @item -dump-vmstate @var{file}
@@ -3352,26 +3352,35 @@ DEF("record", HAS_ARG, QEMU_OPTION_record,
     "-record fname=<filename>[,period=<period>,suffix=<suffix>,snapshot=<on/off>,icount=<icount>]\n"
     "                writes replay file for latter replaying\n",
     QEMU_ARCH_ALL)
-STEXIaddress@hidden -record address@hidden,address@hidden,address@hidden,address@hidden
+STEXI
+addresshidden -record 
+addresshidden,addresshidden,addresshidden,addresshidden
+addresshidden -record 
+addresshidden,addresshidden,addresshidden,addresshidden,addresshidden
 Writes compact execution trace into @var{file}.
-VM state is auto saved every @var{period} second, if this parameter is specified.
+VM state is auto saved every @var{period} second, if this parameter is 
+specified.
 Changes for disk images are written
 into separate files with @var{suffix} added. If no @var{suffix} is
 specified, "replay_qcow" is used as suffix.
 If @var{snapshot} parameter is set as off, then original disk image will be
-modified. Default value is on.address@hidden parameter is used for vm clock emulation.
+modified. Default value is on.
+addresshidden parameter is used for vm clock emulation.
 ETEXI
 
 DEF("replay", HAS_ARG, QEMU_OPTION_replay,
     "-replay fname=<filename>[,suffix=<suffix>,snapshot=<on/off>,icount=<icount>]\n"
     "                plays saved replay file\n", QEMU_ARCH_ALL)
-STEXIaddress@hidden -replay address@hidden,address@hidden,address@hidden,address@hidden
+STEXI
+addresshidden -replay 
+addresshidden,addresshidden,addresshidden,addresshidden
 Plays compact execution trace from @var{filename}.
 Changes for disk images and VM states are read
 from separate files with @var{suffix} added. If no @var{suffix} is
 specified, "replay_qcow" is used as suffix.
 If @var{snapshot} parameter is set as off, then original disk image will be
-modified. Default value is on.address@hidden parameter is used for vm clock emulation.
+modified. Default value is on.
+addresshidden parameter is used for vm clock emulation.
 ETEXI
 
 HXCOMM This is the last statement. Insert new options before this line!

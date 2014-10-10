@@ -363,7 +363,7 @@ typedef struct BlockRequest {
 } BlockRequest;
 
 int bdrv_aio_multiwrite(BlockDriverState *bs, BlockRequest *reqs,
-    int num_reqs);
+    int num_reqs, bool replay);
 
 /* sg packet commands */
 int bdrv_ioctl(BlockDriverState *bs, unsigned long int req, void *buf);

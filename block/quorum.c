@@ -867,14 +867,14 @@ static int quorum_open(BlockDriverState *bs, QDict *options, int flags,
                 d = qobject_to_qdict(lentry->value);
                 QINCREF(d);
                 ret = bdrv_open(&s->bs[i], NULL, NULL, d, flags, NULL,
-                                &local_err);
+                                &local_err, NULL);
                 break;
 
             /* QMP reference */
             case QTYPE_QSTRING:
                 string = qobject_to_qstring(lentry->value);
                 ret = bdrv_open(&s->bs[i], NULL, qstring_get_str(string), NULL,
-                                flags, NULL, &local_err);
+                                flags, NULL, &local_err, NULL);
                 break;
 
             default:
